@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.drp
+*.zip
+.git/
+.gitignore
+.env
+.venv
+env/
+venv/
+dist/
+build/
+*.spec
+*.part

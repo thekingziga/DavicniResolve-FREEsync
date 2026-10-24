@@ -1,0 +1,37 @@
+# ==============================================================================
+# ResolveSync TrueNAS Docker Compose Configuration
+# ==============================================================================
+# Deploy via:
+#   - TrueNAS SCALE: Apps -> Discover Apps -> "Custom App" or "Dockge / Portainer"
+#   - CLI: docker compose up -d
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  resolvesync-admin:
+    image: thekingziga/resolvesync-admin:latest
+    container_name: resolvesync-admin
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=UTC
+      - RESOLVESYNC_CONFIG=/config/config.json
+      - RESOLVESYNC_MEDIA_PATH=/media
+      - RESOLVESYNC_PROJECTS_PATH=/projects
+      - PORT=5000
+    volumes:
+      # 1. Config / AppData persistence (adjust path to your TrueNAS appdata dataset)
+      - /mnt/tank/appdata/resolvesync:/config
+
+      # 2. TrueNAS Media Storage Pool (raw camera footage, audio, render cache)
+      - /mnt/tank/media:/media
+
+      # 3. TrueNAS Projects Dataset (stores exported .drp archives)
+      - /mnt/tank/projects:/projects
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/config"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

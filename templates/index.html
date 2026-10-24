@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResolveSync - DaVinci Resolve Media Synchronizer</title>
+  <style>
+    :root {
+      --bg-dark: #121316;
+      --card-bg: #1c1d22;
+      --card-border: #2e3038;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    
+    /* Header */
+    header { background: #18191f; border-bottom: 1px solid var(--card-border); padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.25rem; letter-spacing: 0.5px; }
+    .logo-badge { background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; }
+    .nav-tabs { display: flex; gap: 8px; }
+    .nav-tab { background: transparent; border: 1px solid transparent; color: var(--text-muted); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 500; transition: all 0.15s ease; }
+    .nav-tab:hover { color: var(--text); background: #23252d; }
+    .nav-tab.active { background: #282a36; color: white; border-color: var(--card-border); }
+
+    /* Main Container */
+    main { flex: 1; max-width: 1280px; width: 100%; margin: 0 auto; padding: 32px 24px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Cards */
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 24px; margin-bottom: 24px; }
+    .card-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+    
+    /* Dropzone */
+    .dropzone { border: 2px dashed #3f4250; border-radius: 8px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: #16171c; }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #1c1f2b; }
+    .dropzone-icon { font-size: 2.5rem; margin-bottom: 12px; color: var(--accent); }
+    .dropzone p { color: var(--text-muted); font-size: 0.95rem; }
+    .dropzone span { color: var(--accent); font-weight: 600; }
+
+    /* Metrics Grid */
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .metric-card { background: #16171d; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; text-align: center; }
+    .metric-val { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
+    .metric-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; cursor: pointer; border: none; transition: background 0.15s ease; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-success { background: var(--success); color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-purple { background: var(--purple); color: white; }
+    .btn-purple:hover { background: #7c3aed; }
+    .btn-secondary { background: #2c2e38; color: var(--text); border: 1px solid var(--card-border); }
+    .btn-secondary:hover { background: #373a46; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Actions Bar */
+    .actions-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 24px; }
+
+    /* Inventory Table */
+    .table-container { overflow-x: auto; max-height: 440px; border: 1px solid var(--card-border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem; }
+    th { background: #16171c; padding: 12px 16px; border-bottom: 1px solid var(--card-border); color: var(--text-muted); font-weight: 600; position: sticky; top: 0; z-index: 10; }
+    td { padding: 12px 16px; border-bottom: 1px solid #23252d; }
+    tr:hover td { background: #1f2129; }
+    .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
+    .badge-synced { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .badge-download { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    .badge-upload { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+    .badge-missing { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    .badge-unmapped { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+
+    /* Forms */
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+    .form-control { background: #16171c; border: 1px solid var(--card-border); color: white; padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; }
+    .form-control:focus { outline: none; border-color: var(--accent); }
+
+    /* Progress Modal */
+    .progress-box { background: #16171c; border: 1px solid var(--card-border); border-radius: 8px; padding: 20px; margin-bottom: 20px; display: none; }
+    .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .progress-bar-bg { width: 100%; height: 12px; background: #252731; border-radius: 6px; overflow: hidden; margin-bottom: 12px; }
+    .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.2s ease; }
+    .log-box { background: #0c0d10; border: 1px solid #23252d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.8rem; max-height: 180px; overflow-y: auto; color: #a1a1aa; }
+
+    /* Rule row */
+    .rule-card { background: #16171c; border: 1px solid var(--card-border); border-radius: 6px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">
+      <span>ResolveSync</span>
+      <span class="logo-badge">PRO NAS SYNC</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" onclick="switchTab('server')">TrueNAS Server Status</button>
+      <button class="nav-tab" onclick="switchTab('studio')">Project Inspector</button>
+      <button class="nav-tab" onclick="switchTab('mappings')">Path Mappings</button>
+      <button class="nav-tab" onclick="switchTab('tips')">💡 DaVinci Setup Tips</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- TAB 0: TRUENAS SERVER STATUS & STORAGE -->
+    <section id="tab-server" class="tab-content active">
+      <!-- Storage Pool Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>TrueNAS Storage Pool & Hub Status</span>
+          <span id="serverBadge" class="badge badge-synced">ONLINE</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">
+          This Docker container has native direct access to your TrueNAS ZFS storage datasets. Workstation apps connect directly over HTTP without requiring SSH/SFTP.
+        </p>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-val" id="storageFree">--</div>
+            <div class="metric-label">Media Pool Free</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="storageUsed">--</div>
+            <div class="metric-label">Media Pool Used</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="storageTotal">--</div>
+            <div class="metric-label">Total Capacity</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="storagePct" style="color: var(--accent);">--%</div>
+            <div class="metric-label">Pool Utilization</div>
+          </div>
+        </div>
+
+        <div style="background: #16171c; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; margin-top: 10px;">
+          <strong style="font-size: 0.95rem;">Client Connection Endpoint for Windows / Mac App:</strong>
+          <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
+            <code id="endpointUrl" style="background: #0c0d10; padding: 8px 14px; border-radius: 6px; color: #60a5fa; font-size: 1rem; flex: 1;">http://192.168.1.3:5000</code>
+            <button class="btn btn-secondary" onclick="copyEndpoint()">Copy URL</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Activity Log Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>Live Sync Activity Stream</span>
+          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.75rem;" onclick="loadServerStatus()">Refresh</button>
+        </div>
+        <div class="table-container" style="max-height: 280px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Client IP</th>
+                <th>File / Details</th>
+              </tr>
+            </thead>
+            <tbody id="activityTableBody">
+              <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Waiting for client activity...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 1: STUDIO SYNC -->
+    <section id="tab-studio" class="tab-content">
+      
+      <!-- Project Upload Card -->
+      <div class="card">
+        <div class="card-title">
+          <span>Project Archive (.drp)</span>
+          <span id="activeProjectName" style="font-size: 0.85rem; color: var(--accent); font-weight: normal;">No project loaded</span>
+        </div>
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+          <div class="dropzone-icon">📁</div>
+          <p>Drag & Drop your <strong>.drp</strong> file here, or <span>Browse Computer</span></p>
+          <input type="file" id="fileInput" accept=".drp,.zip" style="display: none;" onchange="handleFileSelect(event)" />
+        </div>
+      </div>
+
+      <!-- Sync Progress Card -->
+      <div class="progress-box" id="progressBox">
+        <div class="progress-header">
+          <div>
+            <strong id="progressTitle">Synchronizing Media...</strong>
+            <div id="progressSubtitle" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Preparing transfer...</div>
+          </div>
+          <div id="progressPercent" style="font-size: 1.2rem; font-weight: bold; color: var(--accent);">0%</div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+
+      <!-- Media Overview Grid -->
+      <div id="projectOverview" style="display: none;">
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-val" id="metricTotal">0</div>
+            <div class="metric-label">Total Clips</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="metricSynced" style="color: var(--success);">0</div>
+            <div class="metric-label">In Sync (Both)</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="metricDownload" style="color: var(--accent);">0</div>
+            <div class="metric-label">Needs Download</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="metricUpload" style="color: var(--purple);">0</div>
+            <div class="metric-label">Needs Upload</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-val" id="metricMissing" style="color: var(--danger);">0</div>
+            <div class="metric-label">Missing Everywhere</div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="actions-bar">
+          <button class="btn btn-success" onclick="startSync('sync')">🔄 Full Bidirectional Sync</button>
+          <button class="btn btn-primary" onclick="startSync('download')">⬇️ Download Missing (Pull)</button>
+          <button class="btn btn-purple" onclick="startSync('upload')">⬆️ Upload Missing (Push)</button>
+          <button class="btn btn-secondary" onclick="startSync('sync', true)">🔍 Dry Run Preview</button>
+        </div>
+
+        <!-- Media Inventory Table -->
+        <div class="card">
+          <div class="card-title">
+            <span>Media Pool Inventory</span>
+            <span id="inventoryCount" style="font-size: 0.85rem; color: var(--text-muted);">0 items</span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Clip Name</th>
+                  <th>Action Needed</th>
+                  <th>Local Workstation</th>
+                  <th>Remote NAS</th>
+                  <th>DRP Source Path</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 2: PATH MAPPINGS -->
+    <section id="tab-mappings" class="tab-content">
+      <div class="card">
+        <div class="card-title">Cross-Platform Path Mappings</div>
+        <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem;">
+          Translate media folders between editors' machines (macOS Unix paths, Windows drive letters) and your central NAS storage.
+        </p>
+
+        <div id="rulesList"></div>
+
+        <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--card-border);">
+          <h4 style="margin-bottom: 16px;">Add New Path Mapping Rule</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Rule Name</label>
+              <input type="text" id="newRuleName" class="form-control" placeholder="e.g. Primary Footage SSD" />
+            </div>
+            <div class="form-group">
+              <label>DRP Prefix (as referenced in Resolve)</label>
+              <input type="text" id="newRuleDRP" class="form-control" placeholder="e.g. D:\Projects\Footage or /Volumes/SSD" />
+            </div>
+            <div class="form-group">
+              <label>Local Prefix (on this machine)</label>
+              <input type="text" id="newRuleLocal" class="form-control" placeholder="e.g. /Users/Me/Projects/Footage" />
+            </div>
+            <div class="form-group">
+              <label>Remote SFTP Prefix (on your NAS)</label>
+              <input type="text" id="newRuleRemote" class="form-control" placeholder="e.g. /srv/media/footage" />
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="addRule()">+ Add Mapping Rule</button>
+        </div>
+      </div>
+
+      <!-- Live Path Sandbox -->
+      <div class="card">
+        <div class="card-title">Path Translation Sandbox</div>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 12px;">
+          Test any sample file path from your DaVinci Resolve project to preview how ResolveSync resolves it:
+        </p>
+        <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+          <input type="text" id="testPathInput" class="form-control" style="flex: 1;" placeholder="e.g. D:\Projects\Footage\Scene1\clip01.mov" />
+          <button class="btn btn-secondary" onclick="testPathMapping()">Test Translation</button>
+        </div>
+        <div id="testPathResult" style="background: #16171c; padding: 14px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; display: none;"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: NAS SETTINGS -->
+    <section id="tab-nas" class="tab-content">
+      <div class="card">
+        <div class="card-title">Self-Hosted NAS / SFTP Server Configuration</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>NAS Server IP or Hostname</label>
+            <input type="text" id="nasHost" class="form-control" placeholder="192.168.1.100" />
+          </div>
+          <div class="form-group">
+            <label>SFTP Port</label>
+            <input type="number" id="nasPort" class="form-control" value="22" />
+          </div>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="nasUser" class="form-control" placeholder="editor" />
+          </div>
+          <div class="form-group">
+            <label>Password (leave blank if using SSH key)</label>
+            <input type="password" id="nasPass" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label>SSH Private Key File Path</label>
+            <input type="text" id="nasKey" class="form-control" placeholder="~/.ssh/id_ed25519" />
+          </div>
+          <div class="form-group">
+            <label>Key Passphrase (optional)</label>
+            <input type="password" id="nasPassphrase" class="form-control" />
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+          <button class="btn btn-primary" onclick="saveConfig()">Save Settings</button>
+          <button class="btn btn-secondary" onclick="testConnection()">🔌 Test SFTP Connection</button>
+        </div>
+        <div id="connectionStatus" style="margin-top: 16px; font-size: 0.9rem; font-weight: 500;"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: DAVINCI SETUP & MAPPED MOUNTS GUIDE -->
+    <section id="tab-tips" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          <span>💡 DaVinci Resolve Path Mapping & Zero-Config Guide</span>
+          <span class="badge badge-synced">UNIVERSAL</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 24px;">
+          Configure DaVinci Resolve once with <strong>Mapped Mounts</strong> so that clips across PC, Mac, and remote editors link automatically with zero manual relinking or red "Media Offline" clips.
+        </p>
+
+        <!-- Tip Card 1 -->
+        <div style="background: #181a20; border: 1px solid var(--card-border); border-radius: 8px; padding: 18px 22px; margin-bottom: 16px;">
+          <h3 style="color: #10b981; font-size: 1.05rem; margin-top: 0; margin-bottom: 8px;">⚡ 1. What is DaVinci Resolve "Mapped Mounts"?</h3>
+          <p style="color: var(--text); line-height: 1.6; font-size: 0.9rem; margin: 0;">
+            DaVinci Resolve has a built-in virtual drive translator in its preferences. When projects are shared between Windows (<code style="color: #60a5fa;">D:\Users\...</code>) and macOS (<code style="color: #60a5fa;">/Volumes/SSD/...</code>), DaVinci swaps the disk prefix in memory. <strong>All timelines, audio waveforms, and color grades stay 100% online across every device!</strong>
+          </p>
+        </div>
+
+        <!-- Tip Card 2 -->
+        <div style="background: #181a20; border: 1px solid var(--card-border); border-radius: 8px; padding: 18px 22px; margin-bottom: 16px;">
+          <h3 style="color: #38bdf8; font-size: 1.05rem; margin-top: 0; margin-bottom: 8px;">🍎 2. Exact Setup on Mac (Laptops & External SSDs)</h3>
+          <ol style="color: var(--text); line-height: 1.7; font-size: 0.9rem; margin: 0 0 12px 18px; padding: 0;">
+            <li>Open DaVinci Resolve on your Mac.</li>
+            <li>Press <kbd style="background: #2b2d38; padding: 2px 6px; border-radius: 4px;">Cmd + ,</kbd> (or menu <strong>DaVinci Resolve &rarr; Preferences</strong>).</li>
+            <li>In the left sidebar, click <strong>Media Storage</strong>.</li>
+            <li>Scroll down to the <strong>Mapped Mounts</strong> table at the bottom and click <strong>Add</strong>:
+              <div style="background: #111216; padding: 10px 14px; border-radius: 6px; margin: 8px 0; font-family: monospace; font-size: 0.85rem;">
+                • Mapped Mount (Remote): <span style="color: #f59e0b;">D:\</span><br>
+                • Local Mount (Mac):     <span style="color: #10b981;">/Volumes/YourSSD/D/</span> (or your chosen Download Folder)
+              </div>
+            </li>
+            <li>Click <strong>Save</strong> and reopen your project. Every clip links immediately!</li>
+          </ol>
+        </div>
+
+        <!-- Tip Card 3 -->
+        <div style="background: #181a20; border: 1px solid var(--card-border); border-radius: 8px; padding: 18px 22px; margin-bottom: 16px;">
+          <h3 style="color: #fbbf24; font-size: 1.05rem; margin-top: 0; margin-bottom: 8px;">👥 3. Remote Editor Workflow (Zero Friction)</h3>
+          <p style="color: var(--text); line-height: 1.6; font-size: 0.9rem; margin: 0 0 8px 0;">
+            When collaborating with an external editor:
+          </p>
+          <ul style="color: var(--text); line-height: 1.7; font-size: 0.9rem; margin: 0 0 0 18px; padding: 0;">
+            <li>Editor runs ResolveSync desktop app, connects to TrueNAS URL, and picks their local external drive as the Download Folder.</li>
+            <li>They configure one Mapped Mount in DaVinci: <code style="color: #f59e0b;">D:\</code> &rarr; <code style="color: #10b981;">E:\EditorFootage\D\</code> (or <code style="color: #10b981;">/Volumes/EditorSSD/D/</code> on Mac).</li>
+            <li>You can now collaborate over the PostgreSQL Network Project Server (<code style="color: #a855f7;">thekingziga.com</code>) or send DRP archives without missing a single media clip.</li>
+          </ul>
+        </div>
+
+        <!-- Tip Card 4 -->
+        <div style="background: #181a20; border: 1px solid var(--card-border); border-radius: 8px; padding: 18px 22px;">
+          <h3 style="color: #a855f7; font-size: 1.05rem; margin-top: 0; margin-bottom: 8px;">🔄 4. How ResolveSync Auto-Mirrors Drives</h3>
+          <div style="font-family: monospace; font-size: 0.85rem; line-height: 1.6; background: #111216; padding: 12px 16px; border-radius: 6px; color: #cbd5e1;">
+            • Main PC File:  D:\Users\zigav\Videos\clip.mp4<br>
+            • TrueNAS Hub:   /media/D/Users/zigav/Videos/clip.mp4  (Safe central storage)<br>
+            • Mac / Laptop:  /Volumes/SSD/D/Users/zigav/Videos/clip.mp4
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 10px; margin-bottom: 0;">
+            Because the drive prefix <code>D</code> is kept as the root folder, mapping <code>D:\</code> once connects 100% of footage regardless of where it was located on the original workstation.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let appConfig = null;
+    let currentDrpPath = null;
+    let syncInterval = null;
+
+    // Tabs
+    function switchTab(tabName) {
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabName).classList.add('active');
+      if (tabName === 'mappings' || tabName === 'nas') loadConfig();
+    }
+
+    // Drag and Drop
+    const dropzone = document.getElementById('dropzone');
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) uploadDrpFile(e.dataTransfer.files[0]);
+    });
+
+    function handleFileSelect(e) {
+      if (e.target.files.length) uploadDrpFile(e.target.files[0]);
+    }
+
+    async function uploadDrpFile(file) {
+      document.getElementById('activeProjectName').innerText = 'Analyzing ' + file.name + '...';
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const resp = await fetch('/api/upload-drp', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Failed to upload DRP');
+
+        currentDrpPath = data.drp_path;
+        document.getElementById('activeProjectName').innerText = file.name;
+        renderOverview(data);
+      } catch (err) {
+        alert('Error parsing DRP: ' + err.message);
+        document.getElementById('activeProjectName').innerText = 'Error loading project';
+      }
+    }
+
+    function renderOverview(data) {
+      document.getElementById('projectOverview').style.display = 'block';
+      const items = data.items || [];
+
+      // Calculate counts
+      let total = items.length;
+      let synced = items.filter(i => i.status === 'SYNCED').length;
+      let download = items.filter(i => i.status === 'NEEDS_DOWNLOAD').length;
+      let upload = items.filter(i => i.status === 'NEEDS_UPLOAD').length;
+      let missing = items.filter(i => i.status === 'MISSING_EVERYWHERE').length;
+
+      document.getElementById('metricTotal').innerText = total;
+      document.getElementById('metricSynced').innerText = synced;
+      document.getElementById('metricDownload').innerText = download;
+      document.getElementById('metricUpload').innerText = upload;
+      document.getElementById('metricMissing').innerText = missing;
+      document.getElementById('inventoryCount').innerText = `${total} clips total`;
+
+      const tbody = document.getElementById('inventoryTableBody');
+      tbody.innerHTML = '';
+
+      items.forEach(item => {
+        const tr = document.createElement('tr');
+
+        let badgeClass = 'badge-synced';
+        let badgeText = '✅ Synced';
+        if (item.status === 'NEEDS_DOWNLOAD') { badgeClass = 'badge-download'; badgeText = '⬇️ Needs Download'; }
+        else if (item.status === 'NEEDS_UPLOAD') { badgeClass = 'badge-upload'; badgeText = '⬆️ Needs Upload'; }
+        else if (item.status === 'MISSING_EVERYWHERE') { badgeClass = 'badge-missing'; badgeText = '❌ Missing Everywhere'; }
+        else if (item.status === 'UNMAPPED') { badgeClass = 'badge-unmapped'; badgeText = '⚠️ Unmapped'; }
+
+        tr.innerHTML = `
+          <td><strong>${item.filename}</strong></td>
+          <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+          <td style="color: ${item.local_exists ? 'var(--success)' : 'var(--danger)'}">
+            ${item.local_exists ? '✓ Found (' + formatBytes(item.file_size_local) + ')' : '✗ Missing'}
+          </td>
+          <td style="color: ${item.remote_exists ? 'var(--success)' : 'var(--text-muted)'}">
+            ${item.remote_exists ? '✓ On NAS (' + formatBytes(item.file_size_remote) + ')' : '✗ Not on NAS'}
+          </td>
+          <td style="color: var(--text-muted); font-size: 0.8rem; font-family: monospace;">${item.drp_path}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // Start Sync
+    async function startSync(mode, dryRun = false) {
+      if (!currentDrpPath) return alert('Please upload a .drp project first!');
+
+      const box = document.getElementById('progressBox');
+      box.style.display = 'block';
+      document.getElementById('progressTitle').innerText = dryRun ? 'Running Dry-Run Simulation...' : 'Synchronizing Media (' + mode.toUpperCase() + ')...';
+      document.getElementById('logBox').innerHTML = '<div>Initiating sync job...</div>';
+
+      try {
+        const resp = await fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ drp_path: currentDrpPath, mode: mode, dry_run: dryRun })
+        });
+        const res = await resp.json();
+        if (!resp.ok) throw new Error(res.error || 'Sync request failed');
+
+        if (syncInterval) clearInterval(syncInterval);
+        syncInterval = setInterval(pollSyncStatus, 600);
+      } catch (e) {
+        alert('Sync error: ' + e.message);
+      }
+    }
+
+    async function pollSyncStatus() {
+      try {
+        const resp = await fetch('/api/sync-status');
+        const st = await resp.json();
+
+        document.getElementById('progressBarFill').style.width = st.progress + '%';
+        document.getElementById('progressPercent').innerText = st.progress + '%';
+        if (st.current_file) {
+          document.getElementById('progressSubtitle').innerText = `${st.direction.toUpperCase()}: ${st.current_file} (${formatBytes(st.transferred)} / ${formatBytes(st.total)})`;
+        }
+
+        const logBox = document.getElementById('logBox');
+        logBox.innerHTML = (st.logs || []).map(l => `<div>${l}</div>`).join('');
+        logBox.scrollTop = logBox.scrollHeight;
+
+        if (!st.active) {
+          clearInterval(syncInterval);
+          document.getElementById('progressTitle').innerText = 'Sync Completed!';
+          // Refresh overview
+          if (currentDrpPath) {
+            const re = await fetch('/api/analyze-path', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ drp_path: currentDrpPath })
+            });
+            renderOverview(await re.json());
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // Configuration & Mappings
+    async function loadConfig() {
+      const resp = await fetch('/api/config');
+      appConfig = await resp.json();
+
+      // Populate NAS
+      const s = appConfig.server || {};
+      document.getElementById('nasHost').value = s.host || '';
+      document.getElementById('nasPort').value = s.port || 22;
+      document.getElementById('nasUser').value = s.username || '';
+      document.getElementById('nasPass').value = s.password || '';
+      document.getElementById('nasKey').value = s.key_file || '';
+      document.getElementById('nasPassphrase').value = s.key_passphrase || '';
+
+      renderRules();
+    }
+
+    function renderRules() {
+      const list = document.getElementById('rulesList');
+      list.innerHTML = '';
+      (appConfig.path_mappings || []).forEach((r, idx) => {
+        const div = document.createElement('div');
+        div.className = 'rule-card';
+        div.innerHTML = `
+          <div>
+            <strong>${r.name || 'Rule'}</strong>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+              <div><strong>DRP:</strong> <code>${r.drp_prefix}</code></div>
+              <div><strong>Local:</strong> <code>${r.local_prefix}</code></div>
+              <div><strong>Remote NAS:</strong> <code>${r.remote_prefix}</code></div>
+            </div>
+          </div>
+          <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.75rem;" onclick="deleteRule(${idx})">Delete</button>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    async function addRule() {
+      const rule = {
+        name: document.getElementById('newRuleName').value.trim() || 'Custom Mapping',
+        drp_prefix: document.getElementById('newRuleDRP').value.trim(),
+        local_prefix: document.getElementById('newRuleLocal').value.trim(),
+        remote_prefix: document.getElementById('newRuleRemote').value.trim(),
+      };
+      if (!rule.drp_prefix || !rule.local_prefix || !rule.remote_prefix) {
+        return alert('Please fill in all prefix paths!');
+      }
+      appConfig.path_mappings = appConfig.path_mappings || [];
+      appConfig.path_mappings.push(rule);
+      await saveConfig();
+      renderRules();
+      // Clear inputs
+      document.getElementById('newRuleName').value = '';
+      document.getElementById('newRuleDRP').value = '';
+      document.getElementById('newRuleLocal').value = '';
+      document.getElementById('newRuleRemote').value = '';
+    }
+
+    async function deleteRule(idx) {
+      if (confirm('Delete this mapping rule?')) {
+        appConfig.path_mappings.splice(idx, 1);
+        await saveConfig();
+        renderRules();
+      }
+    }
+
+    async function saveConfig() {
+      appConfig.server = {
+        host: document.getElementById('nasHost').value.trim(),
+        port: parseInt(document.getElementById('nasPort').value) || 22,
+        username: document.getElementById('nasUser').value.trim(),
+        password: document.getElementById('nasPass').value,
+        key_file: document.getElementById('nasKey').value.trim(),
+        key_passphrase: document.getElementById('nasPassphrase').value,
+        timeout_seconds: 30
+      };
+
+      const resp = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appConfig)
+      });
+      if (resp.ok) alert('Settings saved successfully!');
+    }
+
+    async function testConnection() {
+      const statusEl = document.getElementById('connectionStatus');
+      statusEl.style.color = 'var(--text-muted)';
+      statusEl.innerText = 'Connecting to NAS via SFTP...';
+
+      const s = {
+        host: document.getElementById('nasHost').value.trim(),
+        port: parseInt(document.getElementById('nasPort').value) || 22,
+        username: document.getElementById('nasUser').value.trim(),
+        password: document.getElementById('nasPass').value,
+        key_file: document.getElementById('nasKey').value.trim(),
+        key_passphrase: document.getElementById('nasPassphrase').value,
+      };
+
+      const resp = await fetch('/api/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(s)
+      });
+      const data = await resp.json();
+      if (data.success) {
+        statusEl.style.color = 'var(--success)';
+        statusEl.innerText = '✓ ' + data.message;
+      } else {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.innerText = '✗ ' + data.message;
+      }
+    }
+
+    async function testPathMapping() {
+      const pathVal = document.getElementById('testPathInput').value.trim();
+      if (!pathVal) return;
+      const resp = await fetch('/api/test-mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drp_path: pathVal })
+      });
+      const data = await resp.json();
+      const resEl = document.getElementById('testPathResult');
+      resEl.style.display = 'block';
+      if (data.matched) {
+        resEl.innerHTML = `
+          <div style="color: var(--success); font-weight: bold; margin-bottom: 6px;">✓ Matched Rule: ${data.rule}</div>
+          <div><strong>Local Path:</strong>  ${data.local_path}</div>
+          <div><strong>Remote NAS:</strong>  ${data.remote_path}</div>
+        `;
+      } else {
+        resEl.innerHTML = `<span style="color: var(--danger);">✗ No matching path mapping rule found for this prefix!</span>`;
+      }
+    }
+
+    async function loadServerStatus() {
+      try {
+        const resp = await fetch('/api/status');
+        const data = await resp.json();
+        if (data.media_pool) {
+          document.getElementById('storageFree').innerText = formatBytes(data.media_pool.free);
+          document.getElementById('storageUsed').innerText = formatBytes(data.media_pool.used);
+          document.getElementById('storageTotal').innerText = formatBytes(data.media_pool.total);
+          document.getElementById('storagePct').innerText = data.media_pool.pct_used + '%';
+        }
+        document.getElementById('endpointUrl').innerText = window.location.origin;
+
+        // Render activity table
+        const tbody = document.getElementById('activityTableBody');
+        const logs = data.recent_activity || [];
+        if (logs.length > 0) {
+          tbody.innerHTML = '';
+          logs.slice().reverse().forEach(log => {
+            const tr = document.createElement('tr');
+            let color = 'var(--text)';
+            if (log.action === 'UPLOAD') color = 'var(--purple)';
+            if (log.action === 'DOWNLOAD') color = 'var(--accent)';
+            tr.innerHTML = `
+              <td style="color: var(--text-muted); font-size: 0.8rem;">${log.time}</td>
+              <td><span class="badge" style="background: rgba(255,255,255,0.1); color: ${color}; font-weight: bold;">${log.action}</span></td>
+              <td style="font-family: monospace; font-size: 0.8rem;">${log.client}</td>
+              <td><strong>${log.filename}</strong> <span style="color: var(--text-muted); font-size: 0.8rem;">(${log.details})</span></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load server status:', err);
+      }
+    }
+
+    function copyEndpoint() {
+      const url = document.getElementById('endpointUrl').innerText;
+      navigator.clipboard.writeText(url);
+      alert('Copied endpoint URL to clipboard: ' + url);
+    }
+
+    // Initial load
+    loadConfig();
+    loadServerStatus();
+    setInterval(loadServerStatus, 5000);
+  </script>
+</body>
+</html>
