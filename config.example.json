@@ -1,0 +1,40 @@
+{
+  "server": {
+    "server_url": "http://192.168.1.100:5000",
+    "host": "http://192.168.1.100:5000",
+    "port": 5000
+  },
+  "postgres": {
+    "enabled": true,
+    "host": "192.168.1.100",
+    "alt_host": "yourdomain.duckdns.org",
+    "port": 5432,
+    "alt_port": 12345,
+    "user": "postgres",
+    "password": "YOUR_POSTGRES_PASSWORD",
+    "dbname": "main"
+  },
+  "sync_root_folder": "D:\\DAVINCI",
+  "path_mappings": [
+    {
+      "name": "Primary Footage Storage",
+      "drp_prefix": "D:\\Footage",
+      "local_prefix": "D:\\Footage",
+      "remote_prefix": "/media"
+    }
+  ],
+  "sync_options": {
+    "auto_map_unmatched": true,
+    "verify_file_sizes": true,
+    "skip_render_cache": true,
+    "confirm_sync_scope": true,
+    "prompt_launch_davinci": true,
+    "allowed_extensions": [
+      ".mov", ".mp4", ".mxf", ".braw", ".r3d", ".ari", ".wav", ".mp3", ".aac",
+      ".flac", ".png", ".jpg", ".jpeg", ".tiff", ".exr", ".dng"
+    ],
+    "excluded_extensions": [
+      ".dvcc", ".drx", ".dtl", ".gallery", ".tmp", ".dat", ".cache", ".xml", ".db", ".idx"
+    ]
+  }
+}

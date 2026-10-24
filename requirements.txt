@@ -1,0 +1,7 @@
+paramiko>=3.4.0
+tqdm>=4.66.0
+flask>=3.0.0
+requests>=2.31.0
+customtkinter>=6.0.0
+darkdetect>=0.8.0
+pg8000>=1.30.0

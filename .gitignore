@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# User configuration & credentials (DO NOT COMMIT)
+config.json
+*.resolvedbkey
+resolvesync_config.json
+*.log
+resolvesync_debug.log
+
+# Backups
+*.bak
+*.resolvesync.bak
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Large archives and temporary test folders
+*.tar.gz
+*.zip
+ResolveSync.app/
+media/
+projects/
+scratch/
