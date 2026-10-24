@@ -559,6 +559,25 @@ class TestProxyAndLauncher(unittest.TestCase):
                 if os.path.exists(cfg_path):
                     os.remove(cfg_path)
 
+    def test_immediate_cancellation(self):
+        from resolvesync import SyncCancelledError, HTTPServerSyncEngine
+        engine = HTTPServerSyncEngine("http://127.0.0.1:9999")
+        # Test download cancellation
+        with self.assertRaises(SyncCancelledError):
+            engine.download_file("rem/clip.mp4", "loc/clip.mp4", is_cancelled=lambda: True)
+
+        # Test upload cancellation
+        with self.assertRaises(SyncCancelledError):
+            engine.upload_file("loc/clip.mp4", "rem/clip.mp4", is_cancelled=lambda: True)
+
+    def test_debug_logging_toggle(self):
+        import logging
+        from resolvesync import set_debug_logging
+        set_debug_logging(True)
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
+        set_debug_logging(False)
+        self.assertEqual(logging.getLogger().level, logging.INFO)
+
     def test_launch_davinci_resolve_signature(self):
         from unittest.mock import patch
         with patch("subprocess.Popen") as mock_popen:

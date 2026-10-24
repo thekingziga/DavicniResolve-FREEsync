@@ -27,7 +27,12 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
+
+
+class SyncCancelledError(Exception):
+    """Raised immediately when synchronization is cancelled by user."""
+    pass
 
 # Fix Windows console UTF-8 output encoding for emojis and non-ASCII paths
 if sys.platform == "win32":
@@ -80,8 +85,8 @@ def get_debug_log_path() -> str:
     return os.path.join(log_dir, "resolvesync_debug.log")
 
 
-def setup_file_logger(verbose: bool = True) -> str:
-    """Configures both console and persistent file logging."""
+def setup_file_logger(verbose: bool = False) -> str:
+    """Configures both console and persistent file logging. Default is INFO (debug OFF)."""
     log_path = get_debug_log_path()
     log_level = logging.DEBUG if verbose else logging.INFO
 
@@ -98,7 +103,7 @@ def setup_file_logger(verbose: bool = True) -> str:
     if not has_file:
         try:
             file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-            file_handler.setLevel(logging.DEBUG)
+            file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
             root_logger.addHandler(file_handler)
         except Exception as ex:
@@ -116,8 +121,19 @@ def setup_file_logger(verbose: bool = True) -> str:
     logger.info(f"Log file: {log_path}")
     logger.info(f"Platform: {platform.system()} {platform.release()} ({platform.machine()})")
     logger.info(f"Python: {sys.executable} ({sys.version.split()[0]})")
+    logger.info(f"Debug logging: {'ENABLED' if verbose else 'DISABLED (Default: INFO/ERROR only)'}")
 
     return log_path
+
+
+def set_debug_logging(enabled: bool):
+    """Dynamically updates root logger and all handlers to DEBUG or INFO level."""
+    level = logging.DEBUG if enabled else logging.INFO
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    for h in root_logger.handlers:
+        h.setLevel(level)
+    logger.info(f"Logging level updated: {'DEBUG (verbose)' if enabled else 'INFO (standard - debug off)'}")
 
 
 def setup_logging(verbose: bool = False):
@@ -876,14 +892,19 @@ class SFTPSyncEngine:
         local_path: str,
         expected_size: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> bool:
         """
         Downloads a file from remote SFTP to local workstation:
           1. Creates local parent folders.
           2. Safe atomic download using a temporary '.part' file.
           3. Real-time progress bar (tqdm) or custom callback.
-          4. Size verification.
+          4. Immediate cancellation support.
+          5. Size verification.
         """
+        if is_cancelled and is_cancelled():
+            raise SyncCancelledError("SFTP download cancelled before start")
+
         if not self.sftp_client:
             raise RuntimeError("SFTP client is not connected.")
 
@@ -922,6 +943,8 @@ class SFTPSyncEngine:
 
         def sftp_get_callback(transferred: int, total: int):
             nonlocal last_transferred
+            if is_cancelled and is_cancelled():
+                raise SyncCancelledError("SFTP download cancelled by user")
             if pbar is not None:
                 pbar.update(transferred - last_transferred)
             last_transferred = transferred
@@ -934,6 +957,15 @@ class SFTPSyncEngine:
                 localpath=part_path,
                 callback=sftp_get_callback,
             )
+        except SyncCancelledError:
+            if pbar is not None:
+                pbar.close()
+            if os.path.exists(part_path):
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+            raise
         except Exception as e:
             if pbar is not None:
                 pbar.close()
@@ -965,6 +997,7 @@ class SFTPSyncEngine:
         remote_path: str,
         expected_size: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> bool:
         """
         Uploads a file from local workstation to remote SFTP (NAS):
@@ -973,6 +1006,9 @@ class SFTPSyncEngine:
           3. Real-time progress bar (tqdm) or custom callback.
           4. Verifies remote file size and performs atomic rename.
         """
+        if is_cancelled and is_cancelled():
+            raise SyncCancelledError("SFTP upload cancelled before start")
+
         if not self.sftp_client:
             raise RuntimeError("SFTP client is not connected.")
 
@@ -1013,6 +1049,8 @@ class SFTPSyncEngine:
 
         def sftp_put_callback(transferred: int, total: int):
             nonlocal last_transferred
+            if is_cancelled and is_cancelled():
+                raise SyncCancelledError("SFTP upload cancelled by user")
             if pbar is not None:
                 pbar.update(transferred - last_transferred)
             last_transferred = transferred
@@ -1025,6 +1063,14 @@ class SFTPSyncEngine:
                 remotepath=part_remote_path,
                 callback=sftp_put_callback,
             )
+        except SyncCancelledError:
+            if pbar is not None:
+                pbar.close()
+            try:
+                self.sftp_client.remove(part_remote_path)
+            except IOError:
+                pass
+            raise
         except Exception as e:
             if pbar is not None:
                 pbar.close()
@@ -1116,8 +1162,12 @@ class HTTPServerSyncEngine:
         local_path: str,
         expected_size: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> bool:
-        """Downloads a media file from TrueNAS via HTTP chunked streaming with resume."""
+        """Downloads a media file from TrueNAS via HTTP chunked streaming with resume and immediate cancellation."""
+        if is_cancelled and is_cancelled():
+            raise SyncCancelledError("Download cancelled before start")
+
         local_dir = os.path.dirname(local_path)
         if local_dir and not os.path.exists(local_dir):
             os.makedirs(local_dir, exist_ok=True)
@@ -1136,6 +1186,7 @@ class HTTPServerSyncEngine:
 
         pbar = None
         last_transferred = downloaded_bytes
+        last_cb_time = 0
 
         try:
             with requests.get(url, params=params, headers=headers, stream=True, timeout=60) as r:
@@ -1159,16 +1210,31 @@ class HTTPServerSyncEngine:
 
                 mode = "ab" if r.status_code == 206 else "wb"
                 with open(part_path, mode) as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):  # 1MB buffer
+                    # 2MB buffer for high-throughput disk I/O without CPU thrashing
+                    for chunk in r.iter_content(chunk_size=1024 * 1024 * 2):
+                        if is_cancelled and is_cancelled():
+                            if pbar is not None:
+                                pbar.close()
+                            raise SyncCancelledError("Download cancelled by user")
                         if chunk:
                             f.write(chunk)
                             downloaded_bytes += len(chunk)
                             if pbar is not None:
                                 pbar.update(downloaded_bytes - last_transferred)
                             last_transferred = downloaded_bytes
-                            if progress_callback:
+
+                            now = time.time()
+                            if progress_callback and (downloaded_bytes >= total_size or (now - last_cb_time) >= 0.08):
+                                last_cb_time = now
                                 progress_callback(downloaded_bytes, total_size, "download", filename)
 
+        except SyncCancelledError:
+            if os.path.exists(part_path):
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+            raise
         finally:
             if pbar is not None:
                 pbar.close()
@@ -1183,8 +1249,12 @@ class HTTPServerSyncEngine:
         remote_path: str,
         expected_size: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> bool:
-        """Streams a local file directly into the TrueNAS /media storage dataset."""
+        """Streams a local file directly into the TrueNAS /media storage dataset with immediate cancellation."""
+        if is_cancelled and is_cancelled():
+            raise SyncCancelledError("Upload cancelled before start")
+
         if not os.path.exists(local_path):
             raise FileNotFoundError(f"Local file does not exist: {local_path}")
 
@@ -1209,29 +1279,49 @@ class HTTPServerSyncEngine:
             )
 
         class ChunkReader:
-            def __init__(self, path, callback, pbar_ref):
+            def __init__(self, path, callback, pbar_ref, cancel_fn):
                 self.f = open(path, "rb")
                 self.callback = callback
                 self.pbar = pbar_ref
+                self.cancel_fn = cancel_fn
                 self.transferred = 0
                 self.total = file_size
                 self.last_t = 0
+                self.last_cb_time = 0
 
             def read(self, size=-1):
+                if self.cancel_fn and self.cancel_fn():
+                    self.f.close()
+                    raise SyncCancelledError("Upload cancelled by user")
+
                 chunk = self.f.read(size)
                 if chunk:
                     self.transferred += len(chunk)
                     if self.pbar is not None:
                         self.pbar.update(self.transferred - self.last_t)
                     self.last_t = self.transferred
-                    if self.callback:
+
+                    now = time.time()
+                    if self.callback and (self.transferred >= self.total or (now - self.last_cb_time) >= 0.08):
+                        self.last_cb_time = now
                         self.callback(self.transferred, self.total, "upload", filename)
                 return chunk
 
             def close(self):
-                self.f.close()
+                try:
+                    self.f.close()
+                except Exception:
+                    pass
 
-        reader = ChunkReader(local_path, progress_callback, pbar)
+        reader = ChunkReader(local_path, progress_callback, pbar, is_cancelled)
+        try:
+            resp = requests.post(url, params=params, headers=headers, data=reader, stream=True, timeout=300)
+            if resp.status_code != 200:
+                raise IOError(f"Upload to TrueNAS server failed (HTTP {resp.status_code}): {resp.text}")
+        except SyncCancelledError:
+            raise
+        finally:
+            reader.close()
         try:
             resp = requests.post(url, params=params, headers=headers, data=reader, stream=True, timeout=300)
             if resp.status_code != 200:
@@ -2403,6 +2493,7 @@ class ResolveSyncApp:
         sync_root: Optional[str] = None,
         media_filter: str = "all",
         selected_items: Optional[List[str]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> int:
         """
         Executes synchronization based on mode:
@@ -2529,6 +2620,9 @@ class ResolveSyncApp:
             if actions_download:
                 print(f"\n--- ⬇️ DOWNLOADING {len(actions_download)} MISSING LOCAL MEDIA FROM TRUENAS ---")
                 for idx, item in enumerate(actions_download, 1):
+                    if is_cancelled and is_cancelled():
+                        emit("⏹️ Synchronization cancelled by user.")
+                        return 130
                     filename = os.path.basename(item.local_path)
                     try:
                         http_engine.download_file(
@@ -2536,10 +2630,14 @@ class ResolveSyncApp:
                             local_path=item.local_path,
                             expected_size=item.file_size_remote or None,
                             progress_callback=progress_callback,
+                            is_cancelled=is_cancelled,
                         )
                         item.status = "DOWNLOAD_SUCCESS"
                         item.local_exists = True
                         successful_downloads += 1
+                    except SyncCancelledError:
+                        emit(f"⏹️ Transfer cancelled while downloading {filename}.")
+                        return 130
                     except Exception as err:
                         logger.error(f"Failed to download {filename}: {err}")
                         item.status = "ERROR"
@@ -2550,6 +2648,9 @@ class ResolveSyncApp:
             if actions_upload:
                 print(f"\n--- ⬆️ UPLOADING {len(actions_upload)} MISSING LOCAL MEDIA TO TRUENAS ---")
                 for idx, item in enumerate(actions_upload, 1):
+                    if is_cancelled and is_cancelled():
+                        emit("⏹️ Synchronization cancelled by user.")
+                        return 130
                     filename = os.path.basename(item.local_path)
                     try:
                         http_engine.upload_file(
@@ -2557,10 +2658,14 @@ class ResolveSyncApp:
                             remote_path=item.remote_path,
                             expected_size=item.file_size_local or None,
                             progress_callback=progress_callback,
+                            is_cancelled=is_cancelled,
                         )
                         item.status = "UPLOAD_SUCCESS"
                         item.remote_exists = True
                         successful_uploads += 1
+                    except SyncCancelledError:
+                        emit(f"⏹️ Transfer cancelled while uploading {filename}.")
+                        return 130
                     except Exception as err:
                         logger.error(f"Failed to upload {filename}: {err}")
                         item.status = "ERROR"
@@ -2574,6 +2679,9 @@ class ResolveSyncApp:
                     if actions_download:
                         print(f"\n--- ⬇️ DOWNLOADING {len(actions_download)} MISSING LOCAL MEDIA (SFTP) ---")
                         for idx, item in enumerate(actions_download, 1):
+                            if is_cancelled and is_cancelled():
+                                emit("⏹️ Synchronization cancelled by user.")
+                                return 130
                             filename = os.path.basename(item.local_path)
                             try:
                                 sftp.download_file(
@@ -2581,10 +2689,14 @@ class ResolveSyncApp:
                                     local_path=item.local_path,
                                     expected_size=item.file_size_remote or None,
                                     progress_callback=progress_callback,
+                                    is_cancelled=is_cancelled,
                                 )
                                 item.status = "DOWNLOAD_SUCCESS"
                                 item.local_exists = True
                                 successful_downloads += 1
+                            except SyncCancelledError:
+                                emit(f"⏹️ Transfer cancelled while downloading {filename}.")
+                                return 130
                             except Exception as err:
                                 logger.error(f"Failed to download {filename}: {err}")
                                 item.status = "ERROR"
@@ -2594,6 +2706,9 @@ class ResolveSyncApp:
                     if actions_upload:
                         print(f"\n--- ⬆️ UPLOADING {len(actions_upload)} MISSING NAS MEDIA (SFTP) ---")
                         for idx, item in enumerate(actions_upload, 1):
+                            if is_cancelled and is_cancelled():
+                                emit("⏹️ Synchronization cancelled by user.")
+                                return 130
                             filename = os.path.basename(item.local_path)
                             try:
                                 sftp.upload_file(
@@ -2601,18 +2716,23 @@ class ResolveSyncApp:
                                     remote_path=item.remote_path,
                                     expected_size=item.file_size_local or None,
                                     progress_callback=progress_callback,
+                                    is_cancelled=is_cancelled,
                                 )
                                 item.status = "UPLOAD_SUCCESS"
                                 item.remote_exists = True
                                 successful_uploads += 1
+                            except SyncCancelledError:
+                                emit(f"⏹️ Transfer cancelled while uploading {filename}.")
+                                return 130
                             except Exception as err:
                                 logger.error(f"Failed to upload {filename}: {err}")
                                 item.status = "ERROR"
                                 item.error_message = str(err)
                                 failed_uploads += 1
 
-            except KeyboardInterrupt:
-                print("\n[!] Transfer aborted by user (Ctrl+C). Cleaned up active files.")
+            except (KeyboardInterrupt, SyncCancelledError):
+                print("\n[!] Transfer aborted by user. Cleaned up active files.")
+                emit("⏹️ Synchronization cancelled by user.")
                 return 130
             except Exception as e:
                 logger.error(f"Fatal SFTP sync failure: {e}")

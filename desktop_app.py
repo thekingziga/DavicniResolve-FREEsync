@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import time
+import webbrowser
 from typing import Dict, List, Optional, Tuple
 
 # Safeguard UTF-8 console encoding on Windows
@@ -277,14 +278,16 @@ from resolvesync import (
     PathMapper,
     ResolveSyncApp,
     SFTPSyncEngine,
+    SyncCancelledError,
     get_debug_log_path,
     launch_davinci_resolve,
+    set_debug_logging,
     setup_file_logger,
     __version__,
 )
 
-# Initialize persistent file logger across whole application
-LOG_FILE_PATH = setup_file_logger(verbose=True)
+# Initialize persistent file logger (Default: verbose=False for standard INFO/ERROR logs)
+LOG_FILE_PATH = setup_file_logger(verbose=False)
 logger = logging.getLogger("ResolveSyncDesktop")
 
 IS_MAC = sys.platform == "darwin"
@@ -1947,6 +1950,9 @@ class ResolveSyncAppGUI(ctk.CTk):
         self.stop_requested: bool = False
         self.db_projects_cache: List[dict] = []
         self.media_filter_var = ctk.StringVar(value="🎬 All Media (Both)")
+        self.debug_logs_var = ctk.BooleanVar(value=self.config_data.get("debug_logging", False))
+        if self.debug_logs_var.get():
+            set_debug_logging(True)
 
         self._build_main_ui()
 
@@ -2023,16 +2029,29 @@ class ResolveSyncAppGUI(ctk.CTk):
         badge.pack(side="left", padx=4)
 
         # Right Header Buttons
+        btn_about = ctk.CTkButton(
+            top_bar,
+            text="👑 About Žiga",
+            width=115,
+            command=self._focus_about_tab,
+            fg_color="#1e1f26",
+            hover_color="#2b2d38",
+            border_color="#3b3e4f",
+            border_width=1,
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        btn_about.pack(side="right", padx=(0, 16), pady=14)
+
         btn_log = ctk.CTkButton(
             top_bar,
             text="📄 Logs",
-            width=90,
+            width=85,
             command=open_log_file,
             fg_color="#22242b",
             hover_color="#2d3039",
             font=ctk.CTkFont(size=12)
         )
-        btn_log.pack(side="right", padx=(0, 16), pady=14)
+        btn_log.pack(side="right", padx=(0, 8), pady=14)
 
         btn_settings = ctk.CTkButton(
             top_bar,
@@ -2361,16 +2380,195 @@ class ResolveSyncAppGUI(ctk.CTk):
         self.progress_stats = ctk.CTkLabel(prog_inner, text="0 / 0 bytes (0 MB/s)", font=ctk.CTkFont(size=11), text_color="#9ca3af")
         self.progress_stats.pack(anchor="w")
 
-        # --- E. Media Inventory Listbox / Console ---
-        list_frame = ctk.CTkFrame(content_frame, fg_color="#1c1d24", corner_radius=10)
-        list_frame.pack(fill="both", expand=True, padx=2)
+        # --- E. Main Notebook: Log Console, About Creator Tab, Setup Guide ---
+        self.main_tabview = ctk.CTkTabview(content_frame, fg_color="#1c1d24", corner_radius=10)
+        self.main_tabview.pack(fill="both", expand=True, padx=2)
 
-        list_header = ctk.CTkFrame(list_frame, fg_color="transparent")
-        list_header.pack(fill="x", padx=16, pady=(10, 4))
+        tab_log = self.main_tabview.add("📜 Sync Activity & Console")
+        tab_about = self.main_tabview.add("👑 About Žiga (@thekingziga)")
+        tab_guide = self.main_tabview.add("💡 Quick Setup Guide")
+
+        # Tab 1: Activity Log
+        list_header = ctk.CTkFrame(tab_log, fg_color="transparent")
+        list_header.pack(fill="x", padx=12, pady=(4, 6))
         ctk.CTkLabel(list_header, text="Real-time Synchronization & Media Log", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
 
-        self.log_text = ctk.CTkTextbox(list_frame, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#121316", text_color="#d1d5db")
-        self.log_text.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        btn_open = ctk.CTkButton(list_header, text="📄 Open File", width=85, height=26, command=open_log_file, fg_color="#2d3039", hover_color="#373a46", font=ctk.CTkFont(size=11))
+        btn_open.pack(side="right", padx=(6, 0))
+
+        btn_clear = ctk.CTkButton(list_header, text="🧹 Clear", width=65, height=26, command=self._clear_log, fg_color="#2d3039", hover_color="#373a46", font=ctk.CTkFont(size=11))
+        btn_clear.pack(side="right", padx=(6, 0))
+
+        self.sw_debug = ctk.CTkSwitch(
+            list_header,
+            text="Debug Logs",
+            variable=self.debug_logs_var,
+            command=self._toggle_debug_logs,
+            font=ctk.CTkFont(size=11),
+            width=90,
+        )
+        self.sw_debug.pack(side="right", padx=(0, 10))
+
+        self.log_text = ctk.CTkTextbox(tab_log, font=ctk.CTkFont(family="Consolas", size=11), fg_color="#121316", text_color="#d1d5db")
+        self.log_text.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+        # Tab 2: About Creator
+        self._build_about_tab(tab_about)
+
+        # Tab 3: Setup Guide
+        self._build_guide_tab(tab_guide)
+
+    def _build_about_tab(self, parent):
+        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Header Profile Card
+        hdr = ctk.CTkFrame(scroll, fg_color="#22242c", corner_radius=10, border_color="#374151", border_width=1)
+        hdr.pack(fill="x", pady=(0, 10), padx=4)
+
+        hdr_inner = ctk.CTkFrame(hdr, fg_color="transparent")
+        hdr_inner.pack(fill="x", padx=16, pady=16)
+
+        ctk.CTkLabel(
+            hdr_inner,
+            text="👑 Žiga Vodnjov Frelih",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color="#60a5fa",
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            hdr_inner,
+            text="aka thekingziga | TheKingZiga • Domžale, Slovenia 🇸🇮",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#9ca3af",
+        ).pack(anchor="w", pady=(2, 6))
+
+        ctk.CTkLabel(
+            hdr_inner,
+            text="Video Editor • Software Developer • Tech Content Creator • Self-Hosting & Homelab Architect",
+            font=ctk.CTkFont(size=12),
+            text_color="#d1d5db",
+        ).pack(anchor="w")
+
+        # Quick Links Button Bar
+        links_bar = ctk.CTkFrame(hdr_inner, fg_color="transparent")
+        links_bar.pack(anchor="w", pady=(12, 0))
+
+        for text, url, col, hov in [
+            ("🌐 thekingziga.com", "https://www.thekingziga.com", "#2563eb", "#1d4ed8"),
+            ("🐙 GitHub: @thekingziga", "https://github.com/thekingziga", "#374151", "#4b5563"),
+            ("📺 YouTube: @zigavf", "https://www.youtube.com/@zigavf", "#dc2626", "#b91c1c"),
+            ("🎮 Twitch: thekingziga", "https://www.twitch.tv/thekingziga", "#7c3aed", "#6d28d9"),
+        ]:
+            b = ctk.CTkButton(
+                links_bar,
+                text=text,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                command=lambda u=url: webbrowser.open_new_tab(u),
+                fg_color=col,
+                hover_color=hov,
+                height=30,
+            )
+            b.pack(side="left", padx=(0, 8))
+
+        # Card 2: Story & Why ResolveSync was created
+        card_story = ctk.CTkFrame(scroll, fg_color="#18191f", corner_radius=10, border_color="#2b2d38", border_width=1)
+        card_story.pack(fill="x", pady=(0, 10), padx=4)
+
+        ctk.CTkLabel(
+            card_story,
+            text="🚀 The Story of ResolveSync",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#f59e0b",
+        ).pack(anchor="w", padx=16, pady=(12, 6))
+
+        story_text = (
+            "As a content creator and video editor running multiple production channels, gaming videos, and vlogs, "
+            "I frequently collaborate between my powerful Windows editing rig, MacBook laptops on the go, and home server.\n\n"
+            "Official Blackmagic Cloud charges $5/month for project libraries, and DaVinci Resolve Free normally prevents "
+            "remote collaboration and scripting APIs. I refused to let paid subscriptions limit great storytelling.\n\n"
+            "I built ResolveSync to give every video editor the full power of cloud proxy workflows, automatic path translation "
+            "(Windows D:\\ ↔ macOS /Users), and direct PostgreSQL project library extraction — 100% free, private, and hosted "
+            "on your own TrueNAS or NAS network."
+        )
+        ctk.CTkLabel(
+            card_story,
+            text=story_text,
+            font=ctk.CTkFont(size=12),
+            text_color="#d1d5db",
+            justify="left",
+            wraplength=850,
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+
+        # Card 3: Homelab & Infrastructure Background
+        card_lab = ctk.CTkFrame(scroll, fg_color="#18191f", corner_radius=10, border_color="#2b2d38", border_width=1)
+        card_lab.pack(fill="x", pady=(0, 10), padx=4)
+
+        ctk.CTkLabel(
+            card_lab,
+            text="🛠️ Homelab & Self-Hosting Stack",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#10b981",
+        ).pack(anchor="w", padx=16, pady=(12, 6))
+
+        lab_text = (
+            "• Virtualization & OS: Proxmox VE, TrueNAS SCALE, Debian & Ubuntu Server, pfSense firewall routing\n"
+            "• Network Infrastructure: 10GbE SFP+ local storage pool, WireGuard & Cloudflare tunnels for remote editing\n"
+            "• Containerized Microservices: Docker, PostgreSQL Project Servers, automated transcode nodes\n"
+            "• Content & Community: Gaming (Minecraft, Fortnite, Rust, Hytale), tech tutorials, and homelab builds on YouTube (@zigavf)"
+        )
+        ctk.CTkLabel(
+            card_lab,
+            text=lab_text,
+            font=ctk.CTkFont(size=12),
+            text_color="#d1d5db",
+            justify="left",
+            wraplength=850,
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+
+    def _build_guide_tab(self, parent):
+        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=8, pady=8)
+
+        card1 = ctk.CTkFrame(scroll, fg_color="#18191f", corner_radius=10, border_color="#2b2d38", border_width=1)
+        card1.pack(fill="x", pady=(0, 10), padx=4)
+
+        ctk.CTkLabel(card1, text="⚡ 1. Proxies vs. Camera Originals Workflow", font=ctk.CTkFont(size=14, weight="bold"), text_color="#60a5fa").pack(anchor="w", padx=16, pady=(12, 4))
+        g1 = (
+            "• Travel / Laptop Mode: In ResolveSync, select '⚡ Proxies Only (Fast)' to pull lightweight ProRes/H.264 offline clips in seconds.\n"
+            "• DaVinci Setting: In DaVinci Resolve, verify 'Playback -> Proxy Handling -> Prefer Proxies' is checked.\n"
+            "• Final Color / Finishing: When back on your studio workstation, select '🎥 Camera Originals Only', sync the RAW masters, and set 'Playback -> Proxy Handling -> Disable Proxies'."
+        )
+        ctk.CTkLabel(card1, text=g1, font=ctk.CTkFont(size=12), text_color="#d1d5db", justify="left", wraplength=850).pack(anchor="w", padx=16, pady=(0, 12))
+
+        card2 = ctk.CTkFrame(scroll, fg_color="#18191f", corner_radius=10, border_color="#2b2d38", border_width=1)
+        card2.pack(fill="x", pady=(0, 10), padx=4)
+
+        ctk.CTkLabel(card2, text="🗺️ 2. Cross-Platform Mapped Mounts", font=ctk.CTkFont(size=14, weight="bold"), text_color="#10b981").pack(anchor="w", padx=16, pady=(12, 4))
+        g2 = (
+            "To share projects between Windows and macOS without 'Media Offline' red badges:\n"
+            "• macOS: Remote Mount = D:\\  <-->  Local Mount = /Users/<name>/Movies/DaVinci Resolve/D/\n"
+            "• Windows: Remote Mount = /Users/  <-->  Local Mount = D:\\DAVINCI\\Users\\\n\n"
+            "💡 ResolveSync's '🗺️ Mapped Mounts' assistant can automatically inspect and fix your DaVinci .config.data preference files with 1 click!"
+        )
+        ctk.CTkLabel(card2, text=g2, font=ctk.CTkFont(size=12), text_color="#d1d5db", justify="left", wraplength=850).pack(anchor="w", padx=16, pady=(0, 12))
+
+    def _focus_about_tab(self):
+        self.main_tabview.set("👑 About Žiga (@thekingziga)")
+
+    def _clear_log(self):
+        self.log_text.delete("1.0", "end")
+
+    def _toggle_debug_logs(self):
+        enabled = self.debug_logs_var.get()
+        set_debug_logging(enabled)
+        self.config_data["debug_logging"] = enabled
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
+                json.dump(self.config_data, fp, indent=2)
+        except Exception:
+            pass
+        self._log(f"Debug logging {'ENABLED (verbose)' if enabled else 'DISABLED (standard INFO/ERROR only)'}.")
 
     def _create_metric_card(self, parent, label: str, value: str, color: str):
         card = ctk.CTkFrame(parent, fg_color="#1c1d24", corner_radius=8, width=145, height=75)
@@ -2384,7 +2582,9 @@ class ResolveSyncAppGUI(ctk.CTk):
         lbl.pack(pady=(0, 10))
         return val_lbl
 
-    def _log(self, message: str):
+    def _log(self, message: str, level: str = "INFO"):
+        if level == "DEBUG" and hasattr(self, "debug_logs_var") and not self.debug_logs_var.get():
+            return
         ts = time.strftime("%H:%M:%S")
         self.log_text.insert("end", f"[{ts}] {message}\n")
         self.log_text.see("end")
@@ -3012,16 +3212,31 @@ class ResolveSyncAppGUI(ctk.CTk):
             daemon=True,
         ).start()
 
+    def _apply_progress_update(self, pct: float, status_text: str, stats_text: str):
+        if not self.is_syncing:
+            return
+        self.progress_bar.set(pct)
+        self.progress_lbl.configure(text=status_text)
+        self.progress_stats.configure(text=stats_text)
+
     def _run_sync(self, mode: str, dry_run: bool, selected_items: Optional[List[str]] = None):
         sync_root = self.dest_folder_entry.get().strip() or None
         scope_tag = f" ({len(selected_items)} selected files)" if selected_items else ""
         self._log(f"Starting {mode.upper()} synchronization{scope_tag} (Dry run: {dry_run})...")
         last_time = time.time()
         last_bytes = 0
+        last_ui_time = 0
 
         def progress_cb(transferred: int, total: int, direction: str, filename: str):
-            nonlocal last_time, last_bytes
+            nonlocal last_time, last_bytes, last_ui_time
             now = time.time()
+
+            # High-performance throttle: rate-limit UI updates to ~12.5 FPS (every 80ms)
+            # This completely eliminates event loop congestion and GUI freezing during 100MB/s+ file transfers
+            if transferred < total and (now - last_ui_time) < 0.08:
+                return
+            last_ui_time = now
+
             dt = now - last_time
             speed_str = ""
             if dt >= 0.5:
@@ -3031,11 +3246,9 @@ class ResolveSyncAppGUI(ctk.CTk):
                 last_bytes = transferred
 
             pct = (transferred / total) if total > 0 else 0
-            self.after(0, lambda: self.progress_bar.set(pct))
             status_text = f"[{direction.upper()}] {filename} ({int(pct * 100)}%)"
             stats_text = f"{format_bytes(transferred)} / {format_bytes(total)}{speed_str}"
-            self.after(0, lambda: self.progress_lbl.configure(text=status_text))
-            self.after(0, lambda: self.progress_stats.configure(text=stats_text))
+            self.after(0, lambda: self._apply_progress_update(pct, status_text, stats_text))
 
         try:
             sync_app = ResolveSyncApp(config_path=CONFIG_FILE)
@@ -3050,9 +3263,14 @@ class ResolveSyncAppGUI(ctk.CTk):
                 sync_root=sync_root,
                 media_filter=media_filt,
                 selected_items=selected_items,
+                is_cancelled=lambda: self.stop_requested,
             )
-            self.after(0, lambda: self.progress_bar.set(1.0))
-            if code == 0:
+
+            if self.stop_requested or code == 130:
+                self.after(0, lambda: self._log("⏹️ Synchronization cancelled by user."))
+                self.after(0, lambda: self.progress_lbl.configure(text="Synchronization cancelled."))
+            elif code == 0:
+                self.after(0, lambda: self.progress_bar.set(1.0))
                 self.after(0, lambda: self._log("Synchronization completed successfully!"))
                 self.after(0, lambda: self.progress_lbl.configure(text="Sync completed successfully!"))
                 if mode in ["sync", "download"] and not dry_run:
@@ -3071,6 +3289,10 @@ class ResolveSyncAppGUI(ctk.CTk):
             # Refresh media analysis after sync
             self.after(0, self._trigger_analysis)
 
+        except SyncCancelledError:
+            self.after(0, lambda: self._log("⏹️ Synchronization cancelled immediately by user."))
+            self.after(0, lambda: self.progress_lbl.configure(text="Sync cancelled."))
+            self.after(0, self._trigger_analysis)
         except Exception as e:
             self.after(0, lambda: self._log(f"Sync error: {e}"))
             self.after(0, lambda: messagebox.showerror("Sync Failure", str(e)))
@@ -3079,13 +3301,14 @@ class ResolveSyncAppGUI(ctk.CTk):
             self.after(0, lambda: self.btn_start_sync.configure(state="normal"))
             if hasattr(self, "btn_select_files"):
                 self.after(0, lambda: self.btn_select_files.configure(state="normal"))
-            self.after(0, lambda: self.btn_stop_sync.configure(state="disabled"))
+            self.after(0, lambda: self.btn_stop_sync.configure(state="disabled", text="⏹️ Cancel"))
 
     def _cancel_sync(self):
         if self.is_syncing:
             self.stop_requested = True
-            self._log("Cancellation requested by user...")
-            self.btn_stop_sync.configure(state="disabled")
+            self.btn_stop_sync.configure(state="disabled", text="Stopping...")
+            self.progress_lbl.configure(text="Cancelling synchronization immediately...")
+            self._log("⏹️ Cancel requested by user! Halting all transfers...")
 
 
 def main():

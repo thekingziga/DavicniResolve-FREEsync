@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-10-24 - Immediate Cancel, Performance Boost, Creator Info & Debug Toggle
+
+### Added
+- **Instant Synchronization Cancellation**:
+  - `[⏹️ Cancel]` button now halts active file transfers immediately (<1ms) rather than waiting for large multi-GB files to finish.
+  - Added chunk-level cancellation checks (`SyncCancelledError`) inside HTTP chunked download streams, upload chunk readers, and SFTP callbacks.
+  - Automatically cleans up and removes incomplete `.part` temporary files on local disk and remote storage upon cancellation.
+  - Instant UI feedback changing cancel button to "Stopping..." and updating status labels immediately.
+- **High-Throughput Transfer Performance & UI Throttling**:
+  - Fixed application freezing and sluggishness during upload/download by throttling GUI progress updates to ~12.5 FPS (every 80ms), completely preventing event loop congestion.
+  - Upgraded HTTP streaming buffer to 2MB for smooth high-speed disk I/O on 1GbE / 10GbE local networks.
+  - Throttled upload stream reader callbacks to avoid generating hundreds of thousands of GUI redraw events on large files.
+- **Dedicated "About Žiga (@thekingziga)" Creator Tab & Header Shortcut**:
+  - Brand new interactive profile tab honoring creator **Žiga Vodnjov Frelih** (online alias: **thekingziga** / **TheKingZiga**), video editor, software developer, and homelab enthusiast from Domžale, Slovenia.
+  - Documents the project's founding story: bringing Blackmagic Cloud parity to DaVinci Resolve Free and Studio without recurring monthly fees.
+  - 1-Click interactive launch buttons for verified online channels:
+    - 🌐 Website: [thekingziga.com](https://www.thekingziga.com)
+    - 🐙 GitHub: [@thekingziga](https://github.com/thekingziga)
+    - 📺 YouTube: [@zigavf](https://www.youtube.com/@zigavf)
+    - 🎮 Twitch: [thekingziga](https://www.twitch.tv/thekingziga)
+  - Homelab & tech architecture overview (Proxmox VE, TrueNAS SCALE, Docker, pfSense, 10GbE storage pool).
+  - One-click `[👑 About Žiga]` shortcut button in the main application top bar.
+- **Configurable Debug Logging (Default: OFF)**:
+  - Added `Debug Logs` switch directly in the console header to toggle verbose debug logging on and off at runtime.
+  - Defaults to **OFF** (standard `INFO` and `ERROR` logs only), preventing console and log file spam.
+  - Persistent preference saved in `config.json` (`"debug_logging": false`).
+  - Added `[🧹 Clear]` and `[📄 Open File]` quick-action buttons in the console header.
+
+---
+
 ## [1.0.0] - 2026-10-24 - Production Release (Windows & macOS)
 
 ### Added

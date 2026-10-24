@@ -30,11 +30,15 @@ Blackmagic Cloud and DaVinci Resolve Studio offer cloud project libraries and pr
 | :--- | :--- |
 | ⚡ **Proxy-Only Syncing** | Sync only lightweight proxy clips to edit on laptops with 90% disk savings; easily pull RAW originals when grading. |
 | 🔍 **Companion Proxy Auto-Discovery** | Automatically discovers companion proxies created by DaVinci Resolve (`Proxy/` subfolders or `_Proxy` naming), even though DaVinci Free doesn't record separate entries for proxies in PostgreSQL. |
+| ⏹️ **Immediate Cancellation** | Stop transfers instantly (<1ms) without hanging on multi-gigabyte files; automatically cleans up stale partial `.part` files. |
+| 🚀 **High-Speed Lag-Free Engine** | Throttled UI redraws (~12 FPS) and 2MB streaming buffers prevent GUI freezes during 100MB/s+ file transfers. |
 | 🗄️ **Direct PostgreSQL Project Reader** | Connects directly to DaVinci PostgreSQL Project Libraries (e.g. TrueNAS Docker or BM Project Server) and extracts all media paths via binary Protobuf parsing—bypassing the need for DaVinci Resolve Studio. |
 | 📋 **Selective Download Picker** | Review project footage before downloading: pick specific clips, search by filename, or 1-click select missing proxies or originals. |
 | 🗺️ **DaVinci Mapped Mounts Assistant** | Reads and repairs DaVinci preference files on Windows and macOS, correcting trailing slashes and mapping drives (`D:\` $\leftrightarrow$ `/Users/...`). |
-| 🚀 **Direct DaVinci Launcher** | Launch DaVinci Resolve directly from the app; automatically prompts to open your project and relink media right after synchronization completes. |
+| 🎬 **Direct DaVinci Launcher** | Launch DaVinci Resolve directly from the app; automatically prompts to open your project and relink media right after synchronization completes. |
 | 🔑 **1-Click `.resolvedbkey` Importer** | Drop or browse your DaVinci Resolve database key to auto-configure PostgreSQL host, database name, and credentials with LAN/WAN fallback. |
+| 👑 **About Žiga (@thekingziga)** | Interactive creator tab featuring **Žiga Vodnjov Frelih** with direct links to YouTube (@zigavf), website (thekingziga.com), Twitch, and GitHub. |
+| 🐛 **Toggleable Debug Logs** | Default clean logging (`INFO`/`ERROR` only) with instant live toggle for detailed `DEBUG` diagnostics. |
 | 🖥️ **Native Desktop Applications** | Standalone single-file Windows executable (`.exe`) and native Apple Silicon Mach-O `arm64` macOS application bundle (`.app`). |
 
 ---
@@ -80,8 +84,8 @@ flowchart LR
 
 Get the latest ready-to-run releases from the [**Releases Page**](https://github.com/thekingziga/DavicniResolve-FREEsync/releases):
 
-- **Windows 10 / 11 (64-bit):** Download [`ResolveSync_v1.0.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (single standalone file, no installation required).
-- **macOS (Apple Silicon M1 / M2 / M3 / M4 & Intel):** Download [`ResolveSync_Mac_v1.0.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest), unzip, and drag `ResolveSync.app` into `/Applications`.
+- **Windows 10 / 11 (64-bit):** Download [`ResolveSync_v1.1.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (single standalone file, no installation required).
+- **macOS (Apple Silicon M1 / M2 / M3 / M4 & Intel):** Download [`ResolveSync_Mac_v1.1.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest), unzip, and drag `ResolveSync.app` into `/Applications`.
 
 ### Or Run from Source
 
