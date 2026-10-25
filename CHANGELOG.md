@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-10-25 - Real Windows Installer (Setup .exe), Portable ZIP & Application Icon
+
+### Added
+- **Full Windows Setup Installer (`ResolveSync_Setup_v1.2.exe`)**:
+  - Built with Inno Setup 6 featuring modern wizard styling and LZMA2 ultra solid compression.
+  - Installs cleanly into standard User Program Files (`%LOCALAPPDATA%\Programs\ResolveSync`) requiring no administrator UAC prompt.
+  - Automatically creates Start Menu and optional Desktop shortcuts with the custom application icon.
+  - Registers full Windows uninstallation support with Control Panel / "Apps & Features" integration.
+  - Includes post-installation option to launch ResolveSync immediately upon setup completion.
+- **Portable Windows ZIP Package (`ResolveSync_Windows_v1.2.zip`)**:
+  - Self-contained, zero-install portable release archive for USB drives, portable setups, or environments without installer privileges.
+  - Bundles `ResolveSync.exe`, `config.example.json`, `README.md`, `LICENSE`, and `app_icon.ico`.
+- **Custom Application Icon & Visual Identity**:
+  - High-resolution multi-size icon (`app_icon.ico` supporting 16x16, 32x32, 48x48, 64x64, 128x128, and 256x256 formats) featuring modern DaVinci Resolve colorway palette (cyan/indigo/amber) with synchronization arrows.
+  - Embedded directly into compiled Windows executable binary, application taskbar window, and installer package.
+  - High-res 512x512 PNG master asset (`app_icon.png`) for documentation and packaging.
+
+---
+
 ## [1.1.0] - 2026-10-24 - Immediate Cancel, Performance Boost, Creator Info & Debug Toggle
 
 ### Added

@@ -1938,6 +1938,19 @@ class ResolveSyncAppGUI(ctk.CTk):
         self.geometry("1180x880")
         self.minsize(1060, 740)
 
+        # Window Icon
+        for candidate_icon in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico"),
+            os.path.join(getattr(sys, "_MEIPASS", ""), "app_icon.ico"),
+            "app_icon.ico",
+        ]:
+            if candidate_icon and os.path.exists(candidate_icon):
+                try:
+                    self.iconbitmap(candidate_icon)
+                    break
+                except Exception:
+                    pass
+
         # State Variables
         self.config_data = self._load_config()
         self.pref_manager = DaVinciPreferencesManager()

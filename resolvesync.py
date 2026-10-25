@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 class SyncCancelledError(Exception):

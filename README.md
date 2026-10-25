@@ -39,7 +39,7 @@ Blackmagic Cloud and DaVinci Resolve Studio offer cloud project libraries and pr
 | 🔑 **1-Click `.resolvedbkey` Importer** | Drop or browse your DaVinci Resolve database key to auto-configure PostgreSQL host, database name, and credentials with LAN/WAN fallback. |
 | 👑 **About Žiga (@thekingziga)** | Interactive creator tab featuring **Žiga Vodnjov Frelih** with direct links to YouTube (@zigavf), website (thekingziga.com), Twitch, and GitHub. |
 | 🐛 **Toggleable Debug Logs** | Default clean logging (`INFO`/`ERROR` only) with instant live toggle for detailed `DEBUG` diagnostics. |
-| 🖥️ **Native Desktop Applications** | Standalone single-file Windows executable (`.exe`) and native Apple Silicon Mach-O `arm64` macOS application bundle (`.app`). |
+| 🖥️ **Native Desktop Applications** | Real Windows Setup installer (`.exe`), zero-install portable Windows package (`.zip`), and native Apple Silicon Mach-O `arm64` macOS application bundle (`.app`). |
 
 ---
 
@@ -55,7 +55,7 @@ flowchart LR
     end
 
     subgraph WinEdit["Windows Workstation"]
-        WinApp["ResolveSync.exe (v1.0.0)"]
+        WinApp["ResolveSync.exe (v1.2.0)"]
         DaVinciWin["DaVinci Resolve (Free/Studio)"]
         WinStorage["Local SSD (D:\DAVINCI)"]
         WinApp <--> DaVinciWin
@@ -84,7 +84,8 @@ flowchart LR
 
 Get the latest ready-to-run releases from the [**Releases Page**](https://github.com/thekingziga/DavicniResolve-FREEsync/releases):
 
-- **Windows 10 / 11 (64-bit):** Download [`ResolveSync_v1.1.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (single standalone file, no installation required).
+- **Windows 10 / 11 (64-bit) Installer:** Download [`ResolveSync_Setup_v1.2.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Real Windows Setup wizard, Start Menu & Desktop shortcuts, clean uninstaller).
+- **Windows Portable ZIP:** Download [`ResolveSync_Windows_v1.2.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Self-contained portable archive, extract and run anywhere).
 - **macOS (Apple Silicon M1 / M2 / M3 / M4 & Intel):** Download [`ResolveSync_Mac_v1.1.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest), unzip, and drag `ResolveSync.app` into `/Applications`.
 
 ### Or Run from Source
@@ -191,7 +192,7 @@ ResolveSync can be configured via the in-app **⚙️ Settings** modal or by cre
 
 ## 📜 Changelog
 
-All versions from `v0.1.0` through `v1.0.0` are documented in detail in [**CHANGELOG.md**](CHANGELOG.md).
+All versions from `v0.1.0` through `v1.2.0` are documented in detail in [**CHANGELOG.md**](CHANGELOG.md).
 
 ---
 
