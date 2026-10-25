@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 
 class SyncCancelledError(Exception):
@@ -685,7 +685,12 @@ class PathMapper:
             elif sync_root:
                 local_path = os.path.normpath(os.path.join(sync_root, drive, rest.replace('/', os.sep)))
             elif os.name == 'nt':
-                local_path = norm_clean
+                target_drive_root = f"{drive}:\\"
+                if os.path.exists(target_drive_root):
+                    local_path = norm_clean
+                else:
+                    def_root = os.path.normpath(os.path.join(os.path.expanduser("~"), "Videos", "ResolveSync"))
+                    local_path = os.path.normpath(os.path.join(def_root, drive, rest.replace('/', os.sep)))
             else:
                 def_root = os.path.expanduser("~/Movies/ResolveSync")
                 local_path = os.path.normpath(os.path.join(def_root, drive, rest.replace('/', os.sep)))
@@ -1121,40 +1126,83 @@ class HTTPServerSyncEngine:
     Connects directly to the ResolveSync Docker container running on TrueNAS.
     Transfers media via high-speed chunked HTTP streaming with resume support.
     Eliminates the need for TrueNAS SSH/SFTP or local shell access.
+    Supports automatic LAN / WAN fallback between local IP and external DDNS domain.
     """
 
-    def __init__(self, server_url: str):
+    @staticmethod
+    def normalize_url(url: Optional[str]) -> str:
+        if not url:
+            return ""
+        clean = str(url).strip().rstrip("/")
+        if not clean:
+            return ""
+        if not (clean.startswith("http://") or clean.startswith("https://")):
+            clean = f"http://{clean}"
+        return clean
+
+    def __init__(self, server_url: str, alt_server_url: Optional[str] = None):
         if requests is None:
             raise ImportError(
                 "The 'requests' library is required for HTTP Hub sync. "
                 "Install it with: pip install requests"
             )
-        self.server_url = server_url.rstrip("/")
+        self.primary_url = self.normalize_url(server_url)
+        self.alt_url = self.normalize_url(alt_server_url) if alt_server_url else None
+        self.server_url = self.primary_url or (self.alt_url or "")
+        self._tested = False
+
+    def _get_candidates(self) -> List[str]:
+        cands = []
+        if self.server_url:
+            cands.append(self.server_url)
+        if self.primary_url and self.primary_url not in cands:
+            cands.append(self.primary_url)
+        if self.alt_url and self.alt_url not in cands:
+            cands.append(self.alt_url)
+        return cands
 
     def check_connection(self) -> Tuple[bool, str]:
-        """Tests connectivity and checks TrueNAS storage pool capacity."""
-        try:
-            resp = requests.get(f"{self.server_url}/api/status", timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                media = data.get("media_pool") or {}
-                free_gb = media.get("free", 0) / (1024 ** 3)
-                total_gb = media.get("total", 0) / (1024 ** 3)
-                return True, f"Connected to TrueNAS Hub! Free: {free_gb:.1f} GB of {total_gb:.1f} GB"
-            return False, f"Server returned HTTP {resp.status_code}"
-        except Exception as e:
-            return False, str(e)
+        """Tests connectivity and checks TrueNAS storage pool capacity with automatic fallback."""
+        candidates = self._get_candidates()
+        if not candidates:
+            return False, "No TrueNAS Hub URL configured"
+
+        last_err = ""
+        for url in candidates:
+            try:
+                resp = requests.get(f"{url}/api/status", timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    media = data.get("media_pool") or {}
+                    free_gb = media.get("free", 0) / (1024 ** 3)
+                    total_gb = media.get("total", 0) / (1024 ** 3)
+                    self.server_url = url
+                    self._tested = True
+                    return True, f"Connected to TrueNAS Hub ({url})! Free: {free_gb:.1f} GB of {total_gb:.1f} GB"
+                last_err = f"HTTP {resp.status_code}"
+            except Exception as e:
+                last_err = str(e)
+
+        return False, f"Could not connect to TrueNAS Hub ({', '.join(candidates)}): {last_err}"
 
     def check_remote_batch(self, relative_paths: List[str]) -> Dict[str, dict]:
-        """Queries the TrueNAS container for existence and sizes of all project clips in one batch."""
-        try:
-            url = f"{self.server_url}/api/media/check"
-            resp = requests.post(url, json={"files": relative_paths}, timeout=15)
-            if resp.status_code == 200:
-                return resp.json().get("results", {})
-        except Exception as e:
-            logger.warning(f"Error querying TrueNAS server for media files: {e}")
-        return {}
+        """Queries the TrueNAS container for existence and sizes of all project clips in one batch with fallback."""
+        if not relative_paths:
+            return {}
+
+        for candidate_url in self._get_candidates():
+            try:
+                url = f"{candidate_url}/api/media/check"
+                resp = requests.post(url, json={"files": relative_paths}, timeout=15)
+                if resp.status_code == 200:
+                    self.server_url = candidate_url
+                    self._tested = True
+                    return resp.json().get("results", {})
+            except Exception as e:
+                logger.warning(f"Error querying TrueNAS server ({candidate_url}) for media files: {e}")
+
+        # If all candidates failed and paths were queried, raise so caller detects Hub failure
+        raise ConnectionError(f"Could not reach TrueNAS Hub at any candidate URL ({', '.join(self._get_candidates())})")
 
     def download_file(
         self,
@@ -2363,17 +2411,22 @@ class ResolveSyncApp:
         items.extend(proxy_items)
 
         # 3. Check remote status via HTTP Hub or SFTP (including remote proxy discovery)
+        self.remote_connected = True
+        self.remote_error_message = ""
+        self.active_server_url = ""
+
         if check_remote:
             server_cfg = self.config.get("server", {})
             server_url = server_cfg.get("server_url") or server_cfg.get("url")
+            alt_server_url = server_cfg.get("alt_server_url")
             host = server_cfg.get("host", "")
             if not server_url and (host.startswith("http://") or host.startswith("https://")):
                 server_url = host
 
-            if server_url:
-                # High-performance batch check via TrueNAS Docker container
+            if server_url or alt_server_url:
+                # High-performance batch check via TrueNAS Docker container with LAN/WAN fallback
                 try:
-                    http_engine = HTTPServerSyncEngine(server_url)
+                    http_engine = HTTPServerSyncEngine(server_url=server_url or "", alt_server_url=alt_server_url)
                     remote_paths = [i.remote_path for i in items if i.status != "UNMAPPED" and i.remote_path]
 
                     # Also collect potential remote proxy paths for originals that do not have a local proxy
@@ -2386,6 +2439,9 @@ class ResolveSyncApp:
                                 remote_paths.append(c)
 
                     results = http_engine.check_remote_batch(remote_paths)
+                    self.remote_connected = True
+                    self.remote_error_message = ""
+                    self.active_server_url = http_engine.server_url
 
                     for item in items:
                         if item.status == "UNMAPPED" or not item.remote_path:
@@ -2436,10 +2492,13 @@ class ResolveSyncApp:
                             items.append(p_item)
 
                 except Exception as e:
+                    self.remote_connected = False
+                    self.remote_error_message = str(e)
                     logger.warning(f"Could not connect to TrueNAS Hub API: {e}")
                     for item in items:
                         if item.status != "UNMAPPED":
-                            item.status = "EXISTS_LOCAL" if item.local_exists else "PENDING_CHECK"
+                            item.status = "PENDING_CHECK"
+                            item.error_message = f"TrueNAS Hub offline: {e}"
 
             elif server_cfg.get("host") and server_cfg.get("username"):
                 try:
@@ -2570,11 +2629,26 @@ class ResolveSyncApp:
         actions_download = to_download if mode in ("sync", "download") else []
         actions_upload = to_upload if mode in ("sync", "upload") else []
 
+        has_server = bool(self.config.get("server", {}).get("server_url") or self.config.get("server", {}).get("alt_server_url") or self.config.get("server", {}).get("host"))
         if not actions_download and not actions_upload:
             if unmapped:
                 logger.warning("No files queued, but unmapped rules exist in config.json.")
                 emit("⚠️ No files queued to transfer because all items are unmapped. Check Settings!")
                 return 2
+            if has_server and not getattr(self, "remote_connected", True):
+                msg = f"❌ TrueNAS Hub is unreachable ({getattr(self, 'remote_error_message', 'Connection failed')}). Cannot download or upload media."
+                logger.error(msg)
+                emit(msg)
+                return 3
+            if missing_both and len(missing_both) == len(items):
+                msg = (
+                    f"⚠️ All {len(missing_both)} project clips are MISSING on TrueNAS storage!\n"
+                    "  • If you are an editor downloading: The project creator must upload the footage to TrueNAS first.\n"
+                    "  • If you are the creator: Set your local footage folder in 'Destination Folder' or Settings so ResolveSync can upload it to TrueNAS."
+                )
+                logger.warning(msg)
+                emit(msg)
+                return 4 if not dry_run else 0
             logger.info("All media files are fully synchronized! Nothing to transfer.")
             emit("✓ All media files are fully synchronized! Nothing to transfer.")
             return 0
@@ -2602,6 +2676,7 @@ class ResolveSyncApp:
         # 3. Perform Transfers via HTTP Hub or SFTP
         server_cfg = self.config.get("server", {})
         server_url = server_cfg.get("server_url") or server_cfg.get("url")
+        alt_server_url = server_cfg.get("alt_server_url")
         host = server_cfg.get("host", "")
         if not server_url and (host.startswith("http://") or host.startswith("https://")):
             server_url = host
@@ -2611,10 +2686,11 @@ class ResolveSyncApp:
         successful_uploads = 0
         failed_uploads = 0
 
-        if server_url:
+        if server_url or alt_server_url:
             # --- HTTP REST Mode (Direct to TrueNAS Docker Container) ---
-            http_engine = HTTPServerSyncEngine(server_url)
-            print(f"\n[+] Connected to TrueNAS Hub at {server_url}")
+            active_url = getattr(self, "active_server_url", None) or server_url or alt_server_url
+            http_engine = HTTPServerSyncEngine(active_url, alt_server_url=alt_server_url if active_url != alt_server_url else server_url)
+            print(f"\n[+] Connected to TrueNAS Hub at {http_engine.server_url}")
 
             # --- Execute Downloads ---
             if actions_download:

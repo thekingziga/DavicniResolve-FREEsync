@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-10-25 - Remote Editor TrueNAS Hub Sync, WAN/LAN Fallback & Hub Status Monitor
+
+### Added
+- **Automatic TrueNAS Hub Configuration from `.resolvedbkey`**:
+  - Importing a `.resolvedbkey` now automatically configures the TrueNAS Hub URL (`http://<host>:5000`) in addition to PostgreSQL credentials.
+  - Automatically updates placeholder and private LAN IPs so remote editors can immediately sync footage without manual URL editing.
+- **TrueNAS Hub LAN / WAN Dual-Host Fallback Engine**:
+  - `HTTPServerSyncEngine` now supports primary (`server_url`) and secondary (`alt_server_url`) endpoints.
+  - Automatically attempts local high-speed LAN (`http://192.168.1.3:5000`) and seamlessly falls back to external WAN (`http://thekingziga.com:5000`) when off-site or on remote Wi-Fi.
+  - Automatic URL normalization prepends `http://` if user enters raw hostnames or IPs without protocol scheme.
+- **Dedicated TrueNAS Hub Live Status Bar in Main UI**:
+  - Live status indicator displaying connection state, active URL, and free storage pool capacity directly in the main project card.
+  - One-click `[🔄 Recheck]` and `[⚙️ Configure Hub]` action buttons to diagnose and resolve network issues instantly.
+- **Fail-Safe Missing Media & Offline Hub Advisories**:
+  - Replaced silent skipping with clear modal dialogs and log warnings when TrueNAS Hub is unreachable or when project footage has not yet been uploaded to TrueNAS by the creator (`MISSING_EVERYWHERE`).
+- **Windows Single-Drive (Non-D:) Fallback**:
+  - `get_default_download_dir()` and `auto_map()` safely detect if drive `D:\` exists, falling back to `~/Videos/ResolveSync` to support single-drive laptops without crash.
+- **Server Drive Letter Sanitization**:
+  - Enhanced TrueNAS server `sanitize_media_path()` to normalize Windows drive letters (`D:/...` -> `D/...`), ensuring seamless path matching across platforms.
+
+---
+
 ## [1.2.0] - 2026-10-25 - Real Windows Installer (Setup .exe), Portable ZIP & Application Icon
 
 ### Added

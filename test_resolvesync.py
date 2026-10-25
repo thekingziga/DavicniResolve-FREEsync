@@ -588,5 +588,27 @@ class TestProxyAndLauncher(unittest.TestCase):
             self.assertIsInstance(res[1], str)
 
 
+    def test_http_hub_url_normalization(self):
+        from resolvesync import HTTPServerSyncEngine
+        self.assertEqual(HTTPServerSyncEngine.normalize_url("thekingziga.com:5000"), "http://thekingziga.com:5000")
+        self.assertEqual(HTTPServerSyncEngine.normalize_url("http://192.168.1.3:5000/"), "http://192.168.1.3:5000")
+        self.assertEqual(HTTPServerSyncEngine.normalize_url("https://hub.example.com"), "https://hub.example.com")
+        self.assertEqual(HTTPServerSyncEngine.normalize_url(""), "")
+
+    def test_http_hub_fallback_logic(self):
+        from resolvesync import HTTPServerSyncEngine
+        engine = HTTPServerSyncEngine("http://192.168.254.254:5000", alt_server_url="http://127.0.0.1:5000")
+        cands = engine._get_candidates()
+        self.assertIn("http://192.168.254.254:5000", cands)
+        self.assertIn("http://127.0.0.1:5000", cands)
+
+    def test_auto_map_drive_letter_structure(self):
+        from resolvesync import PathMapper
+        mapper = PathMapper(rules=[], auto_fallback=True)
+        local_p, remote_p, rule = mapper.map_path("D:\\Footage\\Clip1.mov", sync_root="C:\\DAVINCI")
+        self.assertEqual(remote_p, "/media/D/Footage/Clip1.mov")
+        self.assertTrue(local_p.endswith("Footage\\Clip1.mov") or local_p.endswith("Footage/Clip1.mov"))
+
+
 if __name__ == "__main__":
     unittest.main()

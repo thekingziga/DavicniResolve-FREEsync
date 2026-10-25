@@ -55,7 +55,7 @@ flowchart LR
     end
 
     subgraph WinEdit["Windows Workstation"]
-        WinApp["ResolveSync.exe (v1.2.0)"]
+        WinApp["ResolveSync.exe (v1.3.0)"]
         DaVinciWin["DaVinci Resolve (Free/Studio)"]
         WinStorage["Local SSD (D:\DAVINCI)"]
         WinApp <--> DaVinciWin
@@ -84,8 +84,8 @@ flowchart LR
 
 Get the latest ready-to-run releases from the [**Releases Page**](https://github.com/thekingziga/DavicniResolve-FREEsync/releases):
 
-- **Windows 10 / 11 (64-bit) Installer:** Download [`ResolveSync_Setup_v1.2.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Real Windows Setup wizard, Start Menu & Desktop shortcuts, clean uninstaller).
-- **Windows Portable ZIP:** Download [`ResolveSync_Windows_v1.2.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Self-contained portable archive, extract and run anywhere).
+- **Windows 10 / 11 (64-bit) Installer:** Download [`ResolveSync_Setup_v1.3.exe`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Real Windows Setup wizard, Start Menu & Desktop shortcuts, clean uninstaller).
+- **Windows Portable ZIP:** Download [`ResolveSync_Windows_v1.3.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest) (Self-contained portable archive, extract and run anywhere).
 - **macOS (Apple Silicon M1 / M2 / M3 / M4 & Intel):** Download [`ResolveSync_Mac_v1.1.zip`](https://github.com/thekingziga/DavicniResolve-FREEsync/releases/latest), unzip, and drag `ResolveSync.app` into `/Applications`.
 
 ### Or Run from Source
@@ -192,7 +192,7 @@ ResolveSync can be configured via the in-app **⚙️ Settings** modal or by cre
 
 ## 📜 Changelog
 
-All versions from `v0.1.0` through `v1.2.0` are documented in detail in [**CHANGELOG.md**](CHANGELOG.md).
+All versions from `v0.1.0` through `v1.3.0` are documented in detail in [**CHANGELOG.md**](CHANGELOG.md).
 
 ---
 

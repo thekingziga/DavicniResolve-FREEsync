@@ -71,6 +71,10 @@ def sanitize_media_path(rel_path: str) -> Optional[str]:
     if clean_rel.lower().startswith("media/"):
         clean_rel = clean_rel[6:]
 
+    # Normalize Windows drive letter format "D:/..." -> "D/..."
+    if len(clean_rel) >= 2 and clean_rel[1] == ':' and clean_rel[0].isalpha():
+        clean_rel = clean_rel[0].upper() + "/" + clean_rel[2:].lstrip("/")
+
     abs_path = os.path.abspath(os.path.join(MEDIA_ROOT, clean_rel))
     real_media = os.path.abspath(MEDIA_ROOT)
 

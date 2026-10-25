@@ -433,7 +433,9 @@ def format_bytes(size: int) -> str:
 def get_default_download_dir() -> str:
     """Returns sensible default download folder based on operating system."""
     if IS_WIN:
-        return "D:\\DAVINCI"
+        if os.path.exists("D:\\"):
+            return "D:\\DAVINCI"
+        return os.path.normpath(os.path.join(os.path.expanduser("~"), "Videos", "ResolveSync"))
     elif IS_MAC:
         # Check if an external volume is mounted in /Volumes/
         if os.path.exists("/Volumes"):
@@ -1686,7 +1688,9 @@ class SettingsDialog(ctk.CTkToplevel):
 
         srv = self.config_data.get("server", {})
         default_url = srv.get("server_url") or srv.get("url") or (srv.get("host") if str(srv.get("host", "")).startswith("http") else "http://192.168.1.3:5000")
-        self.url_entry = self._create_field(container, "TrueNAS Hub URL:", default_url)
+        alt_default_url = srv.get("alt_server_url") or "http://thekingziga.com:5000"
+        self.url_entry = self._create_field(container, "TrueNAS Hub URL (Local LAN):", default_url)
+        self.alt_url_entry = self._create_field(container, "TrueNAS Hub URL (Remote WAN / Fallback):", alt_default_url)
 
         # Test Connection Button
         btn_test = ctk.CTkButton(container, text="🔌 Test TrueNAS Hub Connection", command=self._test_connection, fg_color="#374151")
@@ -1830,17 +1834,18 @@ class SettingsDialog(ctk.CTkToplevel):
             self._render_rules()
 
     def _test_connection(self):
-        self.test_status_lbl.configure(text="Connecting to TrueNAS Hub...", text_color="#9ca3af")
+        self.test_status_lbl.configure(text="Connecting to TrueNAS Hub (testing LAN & WAN)...", text_color="#9ca3af")
         self.update_idletasks()
 
         server_url = self.url_entry.get().strip()
-        if not server_url:
-            self.test_status_lbl.configure(text="Please enter a valid TrueNAS URL (e.g. http://192.168.1.3:5000)", text_color="#ef4444")
+        alt_url = self.alt_url_entry.get().strip()
+        if not server_url and not alt_url:
+            self.test_status_lbl.configure(text="Please enter a valid TrueNAS URL (e.g. http://192.168.1.3:5000 or http://thekingziga.com:5000)", text_color="#ef4444")
             return
 
         def run_test():
             try:
-                engine = HTTPServerSyncEngine(server_url)
+                engine = HTTPServerSyncEngine(server_url, alt_server_url=alt_url)
                 ok, msg = engine.check_connection()
                 if ok:
                     self.test_status_lbl.configure(text=f"✓ {msg}", text_color="#10b981")
@@ -1864,6 +1869,18 @@ class SettingsDialog(ctk.CTkToplevel):
                 self.pg_db.delete(0, "end"); self.pg_db.insert(0, parsed["dbname"])
                 self.pg_user.delete(0, "end"); self.pg_user.insert(0, parsed["user"])
                 self.pg_pass.delete(0, "end"); self.pg_pass.insert(0, parsed["password"])
+
+                # Auto-fill Hub URL if empty or local placeholder
+                key_host = parsed.get("host", "").strip()
+                if key_host:
+                    hub_candidate = f"http://{key_host}:5000"
+                    curr_url = self.url_entry.get().strip()
+                    if not curr_url or "192.168.1.100" in curr_url or ("192.168." in curr_url and not key_host.startswith("192.168.")):
+                        self.alt_url_entry.delete(0, "end"); self.alt_url_entry.insert(0, curr_url if curr_url else "")
+                        self.url_entry.delete(0, "end"); self.url_entry.insert(0, hub_candidate)
+                    else:
+                        self.alt_url_entry.delete(0, "end"); self.alt_url_entry.insert(0, hub_candidate)
+
                 self.pg_status_lbl.configure(text=f"✓ Loaded credentials from {os.path.basename(fpath)}", text_color="#10b981")
             except Exception as ex:
                 self.pg_status_lbl.configure(text=f"✗ Error parsing key: {ex}", text_color="#ef4444")
@@ -1892,9 +1909,11 @@ class SettingsDialog(ctk.CTkToplevel):
         threading.Thread(target=worker, daemon=True).start()
 
     def _save_all(self):
-        url_val = self.url_entry.get().strip()
+        url_val = HTTPServerSyncEngine.normalize_url(self.url_entry.get().strip())
+        alt_url_val = HTTPServerSyncEngine.normalize_url(self.alt_url_entry.get().strip())
         self.config_data["server"] = {
             "server_url": url_val,
+            "alt_server_url": alt_url_val or None,
             "host": url_val,
         }
         self.config_data["sync_root_folder"] = self.download_entry.get().strip()
@@ -1975,6 +1994,7 @@ class ResolveSyncAppGUI(ctk.CTk):
         # Populate project sources on startup
         self._populate_postgres_projects()
         self._populate_recent_projects()
+        self._check_hub_status_async()
         # Automatic live Resolve connection disabled per user request (use manual button)
 
     def _load_config(self) -> dict:
@@ -2235,6 +2255,43 @@ class ResolveSyncAppGUI(ctk.CTk):
 
         self.active_proj_stats_lbl = ctk.CTkLabel(proj_inner, text="Select a project above to analyze and sync", font=ctk.CTkFont(size=11), text_color="#9ca3af")
         self.active_proj_stats_lbl.pack(side="right")
+
+        # TrueNAS Hub Server Live Status Row
+        hub_row = ctk.CTkFrame(loader_card, fg_color="transparent")
+        hub_row.pack(fill="x", padx=16, pady=(2, 4))
+
+        ctk.CTkLabel(hub_row, text="TrueNAS Hub:", font=ctk.CTkFont(size=12, weight="bold"), width=100, anchor="w").pack(side="left")
+
+        self.hub_status_lbl = ctk.CTkLabel(
+            hub_row,
+            text="Checking TrueNAS Hub connection...",
+            font=ctk.CTkFont(size=12),
+            text_color="#9ca3af",
+            anchor="w"
+        )
+        self.hub_status_lbl.pack(side="left", fill="x", expand=True)
+
+        self.btn_hub_recheck = ctk.CTkButton(
+            hub_row,
+            text="🔄 Recheck",
+            width=80,
+            command=self._check_hub_status_async,
+            fg_color="#2b2d38",
+            hover_color="#373a46",
+            font=ctk.CTkFont(size=11)
+        )
+        self.btn_hub_recheck.pack(side="right", padx=(6, 0))
+
+        self.btn_hub_config = ctk.CTkButton(
+            hub_row,
+            text="⚙️ Configure Hub",
+            width=115,
+            command=self._open_settings,
+            fg_color="#374151",
+            hover_color="#4b5563",
+            font=ctk.CTkFont(size=11)
+        )
+        self.btn_hub_config.pack(side="right")
 
         # Download / Sync Destination Folder & Mapped Mounts Action
         dest_row = ctk.CTkFrame(loader_card, fg_color="transparent")
@@ -2662,6 +2719,7 @@ class ResolveSyncAppGUI(ctk.CTk):
     def _on_settings_saved(self, updated_cfg: dict):
         self.config_data = updated_cfg
         self._log("Configuration updated successfully.")
+        self._check_hub_status_async()
         self._populate_postgres_projects()
         if self.live_project_media or self.current_drp_path:
             self._trigger_analysis()
@@ -2694,10 +2752,24 @@ class ResolveSyncAppGUI(ctk.CTk):
                                         "user": parsed["user"],
                                         "password": parsed["password"],
                                     }
+                                    key_host = parsed.get("host", "").strip()
+                                    if key_host:
+                                        curr_srv = self.config_data.get("server", {})
+                                        curr_url = curr_srv.get("server_url", "").strip()
+                                        new_hub_url = f"http://{key_host}:5000"
+                                        if not curr_url or "192.168.1.100" in curr_url or ("192.168." in curr_url and not key_host.startswith("192.168.")):
+                                            curr_srv["alt_server_url"] = curr_url if curr_url else None
+                                            curr_srv["server_url"] = new_hub_url
+                                        elif curr_url != new_hub_url and not curr_srv.get("alt_server_url"):
+                                            curr_srv["alt_server_url"] = new_hub_url
+                                        curr_srv["host"] = curr_srv.get("server_url", new_hub_url)
+                                        self.config_data["server"] = curr_srv
+
                                     with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
                                         json.dump(self.config_data, fp, indent=2)
                                     reader = DaVinciPostgresReader.from_config(self.config_data)
                                     self.after(0, lambda fn=fname: self._log(f"Auto-discovered and loaded database key: {fn}"))
+                                    self._check_hub_status_async()
                                     break
                                 except Exception:
                                     pass
@@ -2778,14 +2850,64 @@ class ResolveSyncAppGUI(ctk.CTk):
                     "password": parsed["password"],
                 })
                 self.config_data["postgres"] = curr_pg
+
+                # Automatically configure Hub Server URL from database key host!
+                key_host = parsed.get("host", "").strip()
+                if key_host:
+                    curr_srv = self.config_data.get("server", {})
+                    curr_url = curr_srv.get("server_url", "").strip()
+                    new_hub_url = f"http://{key_host}:5000"
+
+                    if not curr_url or "192.168.1.100" in curr_url or ("192.168." in curr_url and not key_host.startswith("192.168.")):
+                        curr_srv["alt_server_url"] = curr_url if curr_url else None
+                        curr_srv["server_url"] = new_hub_url
+                    elif curr_url != new_hub_url and not curr_srv.get("alt_server_url"):
+                        curr_srv["alt_server_url"] = new_hub_url
+                    curr_srv["host"] = curr_srv.get("server_url", new_hub_url)
+                    self.config_data["server"] = curr_srv
+
                 with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
                     json.dump(self.config_data, fp, indent=2)
 
                 self._log(f"✓ Successfully imported database key: {os.path.basename(fpath)}")
+                if key_host:
+                    self._log(f"✓ Automatically configured TrueNAS Hub URL from key: http://{key_host}:5000")
+                self._check_hub_status_async()
                 self._populate_postgres_projects()
             except Exception as ex:
                 self._log(f"❌ Failed to parse .resolvedbkey: {ex}")
                 messagebox.showerror("Key Import Error", f"Failed to parse database key file: {ex}")
+
+    def _check_hub_status_async(self):
+        """Silently verifies TrueNAS Hub connectivity (LAN / WAN) in background."""
+        if hasattr(self, "hub_status_lbl"):
+            self.hub_status_lbl.configure(text="Checking TrueNAS Hub connection...", text_color="#9ca3af")
+
+        def check():
+            srv = self.config_data.get("server", {})
+            primary = srv.get("server_url") or srv.get("url") or srv.get("host", "")
+            alt = srv.get("alt_server_url")
+            engine = HTTPServerSyncEngine(server_url=primary, alt_server_url=alt)
+            ok, msg = engine.check_connection()
+            if ok:
+                if engine.server_url != primary and engine.server_url:
+                    srv["server_url"] = engine.server_url
+                    srv["alt_server_url"] = primary
+                    self.config_data["server"] = srv
+                    try:
+                        with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
+                            json.dump(self.config_data, fp, indent=2)
+                    except Exception:
+                        pass
+                if hasattr(self, "hub_status_lbl"):
+                    self.after(0, lambda: self.hub_status_lbl.configure(text=f"🟢 {msg}", text_color="#10b981"))
+                self.after(0, lambda: self._log(f"TrueNAS Hub online: {msg}"))
+            else:
+                if hasattr(self, "hub_status_lbl"):
+                    self.after(0, lambda: self.hub_status_lbl.configure(text=f"❌ {msg}", text_color="#ef4444"))
+                self.after(0, lambda: self._log(f"⚠️ TrueNAS Hub offline: {msg}"))
+
+        threading.Thread(target=check, daemon=True).start()
 
     def _on_source_changed(self, selected_mode: str):
         if not hasattr(self, "panel_live") or not hasattr(self, "panel_recent") or not hasattr(self, "panel_drp"):
@@ -2997,6 +3119,21 @@ class ResolveSyncAppGUI(ctk.CTk):
 
                 self.after(0, lambda: self._update_metrics(total, synced, download, upload, missing, unmapped_count))
                 self.after(0, lambda: self._log(f"Analysis complete: {total} items ({synced} synced, {download} to download, {upload} to upload). Filter: {self.media_filter_var.get()}"))
+
+                if hasattr(sync_app, "remote_connected"):
+                    if not sync_app.remote_connected:
+                        err_msg = getattr(sync_app, "remote_error_message", "Connection failed")
+                        self.after(0, lambda: self.hub_status_lbl.configure(text=f"❌ Hub Offline: {err_msg}", text_color="#ef4444"))
+                        self.after(0, lambda: self._log(f"❌ [CRITICAL] TrueNAS Hub is unreachable: {err_msg}. Please check Settings -> TrueNAS Hub URL!"))
+                        self.after(0, lambda: self.media_summary_lbl.configure(text="⚠️ TrueNAS Hub Unreachable: Cannot check remote media status (Check Settings)"))
+                    else:
+                        active_u = getattr(sync_app, "active_server_url", "")
+                        if active_u:
+                            self.after(0, lambda: self.hub_status_lbl.configure(text=f"🟢 Hub Online ({active_u})", text_color="#10b981"))
+
+                if total > 0 and missing == total:
+                    self.after(0, lambda: self._log(f"⚠️ [NOTICE] All {total} project clips are MISSING on TrueNAS storage! Footage must be uploaded by creator before it can be downloaded."))
+                    self.after(0, lambda: self.media_summary_lbl.configure(text=f"⚠️ {total} Clips Missing on TrueNAS (Project creator must upload first!)"))
 
                 if unmapped_count == 0 and total > 0:
                     self.after(0, lambda: self._log(f"✓ All {total} clips auto-mapped across disks. Ready to sync without rules!"))
@@ -3211,6 +3348,32 @@ class ResolveSyncAppGUI(ctk.CTk):
         if is_dry_run:
             mode = "sync"
 
+        # Safeguard: Check if Hub was unreachable during analysis
+        if self.media_items:
+            pending = [i for i in self.media_items if i.status == "PENDING_CHECK"]
+            if len(pending) == len(self.media_items):
+                srv = self.config_data.get("server", {})
+                hub_u = srv.get("server_url") or srv.get("url") or "http://..."
+                messagebox.showerror(
+                    "TrueNAS Hub Offline",
+                    f"Cannot start synchronization because the TrueNAS Hub is currently offline or unreachable at:\n\n{hub_u}\n\n"
+                    "Please verify:\n"
+                    "1. TrueNAS server and Docker container are running.\n"
+                    "2. Port 5000 is open/forwarded on your router.\n"
+                    "3. Click 'Configure Hub' or Settings to check your URL."
+                )
+                return
+
+            missing = [i for i in self.media_items if i.status == "MISSING_EVERYWHERE"]
+            if len(missing) == len(self.media_items) and mode in ("download", "sync"):
+                messagebox.showwarning(
+                    "Media Missing on TrueNAS",
+                    f"The project contains {len(self.media_items)} clips, but NONE of them exist on TrueNAS storage yet!\n\n"
+                    "• If you are an editor downloading: Ask the project creator to upload footage to TrueNAS first.\n"
+                    "• If you are the creator: Ensure your local footage folder is mapped in Settings so ResolveSync can upload it to TrueNAS."
+                )
+                return
+
         self.is_syncing = True
         self.stop_requested = False
         self.btn_start_sync.configure(state="disabled")
@@ -3295,6 +3458,25 @@ class ResolveSyncAppGUI(ctk.CTk):
                     prompt_opt = self.config_data.get("sync_options", {}).get("prompt_launch_davinci", True)
                     if prompt_opt:
                         self.after(1200, lambda pname=pname: PostSyncLaunchDialog(self, pname, len(self.media_items), self._launch_davinci_app))
+            elif code == 3:
+                srv_url = self.config_data.get("server", {}).get("server_url", "http://...")
+                self.after(0, lambda: self.progress_lbl.configure(text="❌ TrueNAS Hub Unreachable"))
+                self.after(0, lambda: messagebox.showerror(
+                    "Hub Connection Failed",
+                    f"Synchronization failed: Could not connect to TrueNAS Hub at:\n\n{srv_url}\n\n"
+                    "Please verify:\n"
+                    "1. TrueNAS server and Docker container are running.\n"
+                    "2. Port 5000 is open/forwarded on the router.\n"
+                    "3. TrueNAS Hub URL is configured in Settings (e.g. http://thekingziga.com:5000 for remote editors)."
+                ))
+            elif code == 4:
+                self.after(0, lambda: self.progress_lbl.configure(text="⚠️ Media Missing on TrueNAS Storage"))
+                self.after(0, lambda: messagebox.showwarning(
+                    "Media Missing on TrueNAS",
+                    "Synchronization skipped: None of the project clips exist on TrueNAS storage yet!\n\n"
+                    "• If you are an editor downloading: The project creator must upload the footage to TrueNAS first.\n"
+                    "• If you are the creator: Ensure your local footage folder is mapped in Settings so ResolveSync can upload it to TrueNAS."
+                ))
             else:
                 self.after(0, lambda: self._log(f"Sync finished with warnings (Exit code: {code})."))
                 self.after(0, lambda: self.progress_lbl.configure(text=f"Sync finished with warnings (code {code})"))
