@@ -1,18 +1,15 @@
 {
   "server": {
-    "server_url": "http://192.168.1.100:5000",
-    "alt_server_url": "http://yourdomain.duckdns.org:5000",
-    "host": "http://192.168.1.100:5000",
+    "server_url": "http://thekingziga.com:5000",
+    "host": "http://thekingziga.com:5000",
     "port": 5000
   },
   "postgres": {
     "enabled": true,
-    "host": "192.168.1.100",
-    "alt_host": "yourdomain.duckdns.org",
+    "host": "thekingziga.com",
     "port": 5432,
-    "alt_port": 12345,
-    "user": "postgres",
-    "password": "YOUR_POSTGRES_PASSWORD",
+    "user": "main",
+    "password": "12345",
     "dbname": "main"
   },
   "sync_root_folder": "D:\\DAVINCI",

@@ -1991,17 +1991,39 @@ class ResolveSyncAppGUI(ctk.CTk):
         self._log(f"ResolveSync v{__version__} ({OS_NAME}) started.")
         self._log(f"📄 Full debug log file: {LOG_FILE_PATH}")
 
-        # Populate project sources on startup
-        self._populate_postgres_projects()
-        self._populate_recent_projects()
-        self._check_hub_status_async()
+        # Populate project sources on startup asynchronously after window renders for instant launch
+        self.after(50, self._populate_postgres_projects)
+        self.after(100, self._populate_recent_projects)
+        self.after(150, self._check_hub_status_async)
         # Automatic live Resolve connection disabled per user request (use manual button)
 
     def _load_config(self) -> dict:
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                # Automatically upgrade local 192.168.x.x addresses to domain thekingziga.com
+                changed = False
+                srv = data.get("server", {})
+                curr_srv_url = srv.get("server_url", "")
+                if not curr_srv_url or "192.168." in curr_srv_url or "localhost" in curr_srv_url:
+                    srv["server_url"] = "http://thekingziga.com:5000"
+                    srv["host"] = "http://thekingziga.com:5000"
+                    data["server"] = srv
+                    changed = True
+                pg = data.get("postgres", {})
+                if pg and ("192.168." in str(pg.get("host", "")) or not pg.get("host")):
+                    pg["host"] = "thekingziga.com"
+                    pg["port"] = 5432
+                    data["postgres"] = pg
+                    changed = True
+                if changed:
+                    try:
+                        with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
+                            json.dump(data, fp, indent=2)
+                    except Exception:
+                        pass
+                return data
             except Exception:
                 pass
 
@@ -2027,7 +2049,7 @@ class ResolveSyncAppGUI(ctk.CTk):
                     return data
                 except Exception:
                     pass
-        return {"server": {}, "path_mappings": [], "sync_options": {}}
+        return {"server": {"server_url": "http://thekingziga.com:5000", "host": "http://thekingziga.com:5000"}, "path_mappings": [], "sync_options": {}}
 
     def _build_main_ui(self):
         # 1. Top Navigation Bar (Clean & Spacious)
@@ -2890,15 +2912,6 @@ class ResolveSyncAppGUI(ctk.CTk):
             engine = HTTPServerSyncEngine(server_url=primary, alt_server_url=alt)
             ok, msg = engine.check_connection()
             if ok:
-                if engine.server_url != primary and engine.server_url:
-                    srv["server_url"] = engine.server_url
-                    srv["alt_server_url"] = primary
-                    self.config_data["server"] = srv
-                    try:
-                        with open(CONFIG_FILE, "w", encoding="utf-8") as fp:
-                            json.dump(self.config_data, fp, indent=2)
-                    except Exception:
-                        pass
                 if hasattr(self, "hub_status_lbl"):
                     self.after(0, lambda: self.hub_status_lbl.configure(text=f"🟢 {msg}", text_color="#10b981"))
                 self.after(0, lambda: self._log(f"TrueNAS Hub online: {msg}"))
@@ -3477,6 +3490,19 @@ class ResolveSyncAppGUI(ctk.CTk):
                     "• If you are an editor downloading: The project creator must upload the footage to TrueNAS first.\n"
                     "• If you are the creator: Ensure your local footage folder is mapped in Settings so ResolveSync can upload it to TrueNAS."
                 ))
+            elif code == 2:
+                err_items = [i for i in getattr(sync_app, "media_items", []) if getattr(i, "status", "") == "ERROR"]
+                err_details = "\n".join(f"• {os.path.basename(i.local_path or i.drp_path)}: {i.error_message}" for i in err_items[:5]) if err_items else ""
+                msg = f"⚠️ Synchronization finished with errors (Exit code: 2)."
+                if err_details:
+                    msg += f"\nFailed items:\n{err_details}"
+                self.after(0, lambda m=msg: self._log(m))
+                self.after(0, lambda: self.progress_lbl.configure(text="Sync finished with warnings/errors (code 2)"))
+                if err_details:
+                    self.after(0, lambda d=err_details: messagebox.showwarning(
+                        "Sync Incomplete",
+                        f"One or more files could not be transferred:\n\n{d}\n\nCheck logs for full diagnostic details."
+                    ))
             else:
                 self.after(0, lambda: self._log(f"Sync finished with warnings (Exit code: {code})."))
                 self.after(0, lambda: self.progress_lbl.configure(text=f"Sync finished with warnings (code {code})"))

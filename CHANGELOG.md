@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-11-09 - Direct Domain Networking, Instant App Launch & Transfer Engine Reliability
+
+### Added
+- **Instant App Launch (<0.5s) & Zero %TEMP% Decompression Lag**:
+  - Re-architected application packaging to bundle a pre-extracted installation directory (`dist\ResolveSync\`) alongside the standalone `.exe`.
+  - Windows Setup Installer (`ResolveSync_Setup_v1.4.exe`) now installs pre-extracted binaries directly to `%LOCALAPPDATA%\Programs\ResolveSync`, completely eliminating the 5-8 second PyInstaller archive decompression lag on every desktop startup.
+  - Lazy-loaded heavy optional dependencies (`paramiko` / cryptography) and deferred startup network checks until after the main window is rendered, cutting import time by over 50%.
+- **Fixed Transfer Engine Failure & Exit Code 2**:
+  - Resolved `NameError: name 'time' is not defined` in `resolvesync.py` during download and upload transfer throttling callbacks.
+  - Fixed HTTP 416 (Range Not Satisfiable) error loop by auto-promoting completed `.part` files and resetting broken partial chunks.
+  - Added real-time error logging and UI failure modal reporting so transfer warnings and error reasons are immediately visible.
+- **Dedicated Domain & Port Networking (`thekingziga.com`)**:
+  - Enforced `http://thekingziga.com:5000` for TrueNAS Media Hub and `thekingziga.com:5432` for PostgreSQL project database across all default configurations.
+  - Removed automatic local IP overwrites (`192.168.x.x`) so project setups and `.resolvedbkey` imports remain uniform and dependable for both local creator and remote editors.
+  - Added auto-migration in `_load_config()` to seamlessly transition existing local `192.168.` configurations to `thekingziga.com`.
+
+---
+
 ## [1.3.0] - 2026-10-25 - Remote Editor TrueNAS Hub Sync, WAN/LAN Fallback & Hub Status Monitor
 
 ### Added

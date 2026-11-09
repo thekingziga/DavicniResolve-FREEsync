@@ -21,13 +21,14 @@ import shutil
 import stat
 import sys
 import tempfile
+import time
 import urllib.parse
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 
 class SyncCancelledError(Exception):
@@ -44,10 +45,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-try:
-    import paramiko
-except ImportError:
-    paramiko = None
+# Lazy-loaded modules for high-speed startup
+paramiko = None
 
 try:
     import requests
@@ -777,11 +776,16 @@ class SFTPSyncEngine:
     """
 
     def __init__(self, server_config: dict):
+        global paramiko
         if paramiko is None:
-            raise ImportError(
-                "The 'paramiko' library is required for SFTP sync. "
-                "Install it with: pip install paramiko"
-            )
+            try:
+                import paramiko as _paramiko
+                paramiko = _paramiko
+            except ImportError:
+                raise ImportError(
+                    "The 'paramiko' library is required for SFTP sync. "
+                    "Install it with: pip install paramiko"
+                )
 
         self.host = server_config.get("host")
         self.port = int(server_config.get("port", 22))
@@ -1226,8 +1230,14 @@ class HTTPServerSyncEngine:
         downloaded_bytes = 0
         headers = {}
         if os.path.exists(part_path):
-            downloaded_bytes = os.path.getsize(part_path)
-            headers["Range"] = f"bytes={downloaded_bytes}-"
+            cur_sz = os.path.getsize(part_path)
+            if expected_size and cur_sz >= expected_size:
+                # File was already completely downloaded
+                os.replace(part_path, local_path)
+                return True
+            if cur_sz > 0:
+                downloaded_bytes = cur_sz
+                headers["Range"] = f"bytes={downloaded_bytes}-"
 
         url = f"{self.server_url}/api/media/download"
         params = {"path": remote_path}
@@ -1237,7 +1247,23 @@ class HTTPServerSyncEngine:
         last_cb_time = 0
 
         try:
-            with requests.get(url, params=params, headers=headers, stream=True, timeout=60) as r:
+            r = requests.get(url, params=params, headers=headers, stream=True, timeout=60)
+            if r.status_code == 416:
+                # HTTP 416 Range Not Satisfiable (e.g. part file is complete or corrupt)
+                r.close()
+                if os.path.exists(part_path):
+                    if expected_size and os.path.getsize(part_path) >= expected_size:
+                        os.replace(part_path, local_path)
+                        return True
+                    try:
+                        os.remove(part_path)
+                    except OSError:
+                        pass
+                downloaded_bytes = 0
+                headers.pop("Range", None)
+                r = requests.get(url, params=params, headers=headers, stream=True, timeout=60)
+
+            with r:
                 if r.status_code not in (200, 206):
                     raise IOError(f"TrueNAS server returned HTTP {r.status_code} for {remote_path}")
 
@@ -2716,6 +2742,7 @@ class ResolveSyncApp:
                         return 130
                     except Exception as err:
                         logger.error(f"Failed to download {filename}: {err}")
+                        emit(f"❌ Failed to download {filename}: {err}")
                         item.status = "ERROR"
                         item.error_message = str(err)
                         failed_downloads += 1
@@ -2744,6 +2771,7 @@ class ResolveSyncApp:
                         return 130
                     except Exception as err:
                         logger.error(f"Failed to upload {filename}: {err}")
+                        emit(f"❌ Failed to upload {filename}: {err}")
                         item.status = "ERROR"
                         item.error_message = str(err)
                         failed_uploads += 1
